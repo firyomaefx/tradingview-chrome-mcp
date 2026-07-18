@@ -9,9 +9,19 @@ import { audit } from "../logging/logger.js";
 import * as policy from "../permissions/policy.js";
 import { getTradingViewTab, getBrowser, listTabs, type TradingViewTab } from "../browser/controller.js";
 import * as tv from "../adapters/tradingview/adapter.js";
+import { detectMcpClient, type DetectedClient } from "../detect/client.js";
 
 export interface ToolContext {
   requestApproval: (message: string) => Promise<boolean>;
+}
+
+let cachedClient: DetectedClient | null = null;
+
+async function getDetectedClient(): Promise<DetectedClient> {
+  if (!cachedClient) {
+    cachedClient = await detectMcpClient();
+  }
+  return cachedClient;
 }
 
 export interface ToolDef {
@@ -93,10 +103,11 @@ function emptySchema(): Record<string, unknown> {
 const tools: ToolDef[] = [
   {
     name: "ping",
-    description: "Health check. Returns server version and emergency-stop state.",
+    description: "Health check. Returns server version, emergency-stop state, and the detected MCP host client.",
     destructive: false,
     inputSchema: emptySchema(),
     async run() {
+      const client = await getDetectedClient();
       return {
         ok: true,
         data: {
@@ -104,8 +115,19 @@ const tools: ToolDef[] = [
           version: "0.2.0",
           emergencyStop: policy.isEmergencyStopped(),
           allowedDomains: policy.ALLOWED_DOMAINS,
+          detectedClient: client,
         },
       };
+    },
+  },
+  {
+    name: "mcp_client_info",
+    description: "Detect and report the LLM/MCP host client that launched this server (Claude, Codex, ChatGPT, Cursor, etc.). Read-only.",
+    destructive: false,
+    inputSchema: emptySchema(),
+    async run() {
+      const client = await getDetectedClient();
+      return { ok: true, data: client };
     },
   },
   {
@@ -169,24 +191,26 @@ const tools: ToolDef[] = [
   },
   {
     name: "tv_status",
-    description: "Read the current TradingView chart state: symbol, timeframe, login, Pine editor open, dialogs, and diagnostics.",
+    description: "Read the current TradingView chart state: symbol, timeframe, login, Pine editor open, dialogs, diagnostics, and detected MCP host client.",
     destructive: false,
     inputSchema: emptySchema(),
     async run() {
       const t = await tab();
       const state = await tv.readChartState(t.page);
-      return { ok: true, data: state, tabUrl: t.url };
+      const client = await getDetectedClient();
+      return { ok: true, data: { ...state, detectedClient: client }, tabUrl: t.url };
     },
   },
   {
     name: "tv_read_chart",
-    description: "Alias for tv_status. Returns the current symbol, timeframe, page readiness, and diagnostics.",
+    description: "Alias for tv_status. Returns the current symbol, timeframe, page readiness, diagnostics, and detected MCP host client.",
     destructive: false,
     inputSchema: emptySchema(),
     async run() {
       const t = await tab();
       const state = await tv.readChartState(t.page);
-      return { ok: true, data: state, tabUrl: t.url };
+      const client = await getDetectedClient();
+      return { ok: true, data: { ...state, detectedClient: client }, tabUrl: t.url };
     },
   },
   {

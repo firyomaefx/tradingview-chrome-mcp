@@ -39,7 +39,7 @@ export function createMcpServer(registry: ToolRegistry, context: ServerContext) 
         annotations: {
           destructiveHint: t.destructive,
           readOnlyHint: !t.destructive && !["emergency_stop"].includes(t.name),
-          idempotentHint: ["ping", "tv_status", "browser_status"].includes(t.name),
+          idempotentHint: ["ping", "tv_status", "tv_read_chart", "browser_status", "mcp_client_info"].includes(t.name),
         },
       })),
     };

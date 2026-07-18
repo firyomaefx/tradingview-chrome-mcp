@@ -5,7 +5,10 @@ All tools are exposed via MCP `tools/list` and `tools/call`. Inputs are validate
 ## General
 
 ### `ping`
-Health check. Returns `{ name, version, emergencyStop, allowedDomains }`. Read-only.
+Health check. Returns `{ name, version, emergencyStop, allowedDomains, detectedClient }`. Read-only.
+
+### `mcp_client_info`
+Detects and reports the LLM/MCP host client that launched this STDIO server. Inspects the parent process chain to identify **Claude Desktop**, **Claude Code**, **Anthropic Codex CLI**, **ChatGPT Desktop**, **Cursor**, **Windsurf**, **VS Code**, **JetBrains IDEs**, or other MCP hosts. Returns `{ name, kind, executable?, commandLine?, pid?, ppid?, confidence }`. Read-only. No conversation data or secrets are read.
 
 ### `emergency_stop`
 Immediately denies every tool until `emergency_clear`. Read-only.
@@ -24,7 +27,7 @@ All open Chrome tabs with full URLs and titles. Read-only.
 ## TradingView - read
 
 ### `tv_status`
-Chart state: `{ url, symbol, timeframe, isLoggedIn, pineEditorOpen, pineEditorReady, dialogs, pageReady }`. Symbol falls back to the URL `symbol=` query; timeframe falls back to the URL `interval=` query. Read-only.
+Chart state: `{ url, symbol, timeframe, isLoggedIn, pineEditorOpen, pineEditorReady, dialogs, pageReady, detectedClient }`. Symbol falls back to the URL `symbol=` query; timeframe falls back to the URL `interval=` query. Includes the detected MCP host client. Read-only.
 
 ### `tv_read_chart`
 Alias for `tv_status`. Read-only.

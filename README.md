@@ -114,6 +114,7 @@ pwsh scripts/Launch-TV-MCP.ps1
 
 The server exposes 30+ tools grouped into:
 
+- **Diagnostics**: `ping`, `mcp_client_info` (detects Claude, Codex, ChatGPT, Cursor, VS Code, etc.)
 - **Chart reading**: `tv_status`, `tv_read_chart`, `tv_chart_metadata`, `tv_change_symbol`, `tv_change_timeframe`
 - **Pine Script**: `tv_open_pine_editor`, `tv_read_pine_source`, `tv_pine_create`, `tv_pine_patch`, `tv_pine_save`, `tv_pine_add_to_chart`, `tv_pine_compile_errors`, `tv_rename_script`
 - **Watchlists**: `tv_watchlist_read`, `tv_watchlist_add_symbol`, `tv_watchlist_sync`

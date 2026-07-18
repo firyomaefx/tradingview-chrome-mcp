@@ -1,7 +1,8 @@
 # Context (v0.3.2)
 
 ## Current state (2026-07-18)
-- **32 MCP tools** in the local server, plus the same tool contract exposed by the hosted fork.
+- **33 MCP tools** in the local server, plus the same tool contract exposed by the hosted fork.
+- **MCP host client detection**: `mcp_client_info` detects Claude Desktop, Claude Code, Codex CLI, ChatGPT Desktop, Cursor, Windsurf, VS Code, JetBrains, and other MCP hosts by inspecting the parent process chain.
 - **Standalone Windows app**: one-line installer, Start-menu + desktop shortcuts, and one-click launcher (`Launch-TV-MCP.cmd` / `scripts/Launch-TV-MCP.ps1`) are live-tested.
 - **Local-first by default**: no remote telemetry, no credential storage, no cookie/token extraction.
 - **Optional Streamable HTTP** on `127.0.0.1:3940` (LAN binding opt-in via `TV_MCP_HTTP_BIND=0.0.0.0`).
@@ -16,11 +17,12 @@
 - **Redis session store** (`src/sessions/store.ts`): Upstash/Vercel KV with in-memory fallback.
 - **Runtime feature flags** (`src/features/flags.ts`): `disable_telemetry`, `read_only_mode`, `disable_destructive_tools`.
 - **Hosted Next.js app** (`vercel-hosted/`): SSE `/api/sse`, JSON-RPC `/api/messages`, mock market-data registry, Supabase migrations.
-- **Updated docs**: `README.md`, `INSTALL.md`, `ARCHITECTURE.md`, and new `HOSTED.md` with clear standalone and hosted usage.
-- **Expanded tests**: 31 unit tests for local project + 4 hosted registry tests.
+- **MCP host client detection** (`src/detect/client.ts`): identifies the LLM/MCP host that launched the STDIO server; surfaced in `ping`, `tv_status`, and `mcp_client_info`.
+- **Updated docs**: `README.md`, `INSTALL.md`, `ARCHITECTURE.md`, `TOOL_REFERENCE.md`, and new `HOSTED.md` with clear standalone and hosted usage.
+- **Expanded tests**: 41 unit tests for local project + 4 hosted registry tests.
 
 ## Test status
-- Local project: `npm run typecheck` ✅, `npm test` ✅ 31/31, `npm run build` ✅, smoke test ✅.
+- Local project: `npm run typecheck` ✅, `npm test` ✅ 41/41, `npm run build` ✅, smoke test ✅.
 - Hosted app: `npm run typecheck` ✅, `npm run test` ✅ 4/4, `npm run build` ✅.
 - GitHub Actions CI: both `ci` (Windows) and `hosted-app` (Ubuntu) jobs passing.
 

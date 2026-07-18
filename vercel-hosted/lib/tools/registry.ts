@@ -120,7 +120,7 @@ let emergencyStop = false;
 const tools: ToolDef[] = [
   {
     name: "ping",
-    description: "Health check. Returns server version, backend, and emergency-stop state.",
+    description: "Health check. Returns server version, backend, emergency-stop state, and MCP client info.",
     destructive: false,
     inputSchema: emptySchema(),
     async run() {
@@ -131,7 +131,20 @@ const tools: ToolDef[] = [
           version: "0.2.0",
           backend: config.toolBackend,
           emergencyStop,
+          detectedClient: { name: "Remote SSE MCP client", kind: "unknown", confidence: "low" },
         },
+      };
+    },
+  },
+  {
+    name: "mcp_client_info",
+    description: "Report the remote MCP client connected via SSE. In hosted mode this is a remote client; use the local Chrome MCP server for parent-process detection.",
+    destructive: false,
+    inputSchema: emptySchema(),
+    async run() {
+      return {
+        ok: true,
+        data: { name: "Remote SSE MCP client", kind: "unknown", confidence: "low" },
       };
     },
   },
