@@ -111,6 +111,8 @@ export const DESTRUCTIVE_TOOLS = new Set<string>([
   "tv_layout_switch",
   "tv_layout_delete",
   "tv_chart_data_export",
+  "tv_watchlist_add_symbol",
+  "tv_watchlist_sync",
 ]);
 
 export const POLICY_LIMITS = { MAX_CHAIN_DEPTH, MAX_ACTIONS_PER_MINUTE };

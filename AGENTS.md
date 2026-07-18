@@ -42,10 +42,10 @@ A task is done only when: typecheck passes, `npm test` passes, the affected tool
 - Capture `tv_screenshot` before and after every destructive step as evidence.
 
 ## Current next priorities (one per loop)
-1. Add `tv_rename_script` (title menu -> Rename... -> name) so saved scripts get clean names.
-2. Live-verify Phase 4 tools individually: alerts create/delete, watchlist add, chart-data export, drawings.
+1. Live-verify Phase 4 tools individually: alerts create/delete, watchlist add/sync, chart-data export, drawings.
+2. Live-verify `tv_rename_script` end-to-end against a real saved Pine script.
 3. Find/create a TradingView "New layout" entry point so a throwaway test layout can be auto-created.
-4. Add Streamable HTTP transport alongside STDIO (registry/adapter are transport-agnostic).
+4. Build a GitHub Actions release pipeline that produces a Windows zip with `dist/` + `node_modules/` for `install-cli.ps1`.
 5. Package dashboard + server as a single Windows tray app.
 
 Start every turn by Observe-ing the current state of the file or tool you've been asked to work on.

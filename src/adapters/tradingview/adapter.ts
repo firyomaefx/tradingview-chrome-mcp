@@ -36,6 +36,15 @@ export interface CompileResult {
   success: boolean;
 }
 
+export interface ChartMetadata {
+  visibleIndicators: string[];
+  strategies: string[];
+  overlays: string[];
+  paneCount: number;
+  symbol: string | null;
+  timeframe: string | null;
+}
+
 export interface StrategyTesterSummary {
   visible: boolean;
   netProfit: string | null;
@@ -625,6 +634,41 @@ export async function changeTimeframe(page: Page, tf: string): Promise<{ changed
   return { changed: false };
 }
 
+export async function readChartMetadata(page: Page): Promise<ChartMetadata> {
+  const state = await readChartState(page);
+  const result = await page.evaluate(() => {
+    const indicators: string[] = [];
+    const strategies: string[] = [];
+    const overlays: string[] = [];
+    let paneCount = 1;
+
+    // Legend indicator labels.
+    document.querySelectorAll('[class*="legend"], [class*="chart-legend"]').forEach((root) => {
+      root.querySelectorAll('[class*="item"], [class*="indicator"], [class*="title"]').forEach((el) => {
+        const t = (el as HTMLElement).innerText?.trim() ?? "";
+        if (!t) return;
+        if (/strategy/i.test(t)) strategies.push(t);
+        else if (/overlay|moving average|ema|sma|bollinger|macd|rsi/i.test(t)) overlays.push(t);
+        else indicators.push(t);
+      });
+    });
+
+    // Pane separators are a rough proxy for sub-pane count.
+    paneCount = Math.max(1, document.querySelectorAll('[class*="chart-pane"], [class*="pane"]').length);
+
+    return { indicators, strategies, overlays, paneCount };
+  }).catch(() => ({ indicators: [], strategies: [], overlays: [], paneCount: 1 }));
+
+  return {
+    visibleIndicators: result.indicators,
+    strategies: result.strategies,
+    overlays: result.overlays,
+    paneCount: result.paneCount,
+    symbol: state.symbol,
+    timeframe: state.timeframe,
+  };
+}
+
 export async function readStrategyTester(page: Page): Promise<StrategyTesterSummary> {
   // Strategy Tester panel appears after running a strategy script.
   const stVisible = await page
@@ -838,14 +882,69 @@ export async function readWatchlist(page: Page): Promise<{ visible: boolean; sym
   return { visible: true, symbols: symbols as string[] };
 }
 
+export async function syncWatchlist(page: Page, symbol: string, addIfMissing = true): Promise<{ synced: boolean; added: boolean; symbols: string[] }> {
+  const current = await readWatchlist(page);
+  if (!current.visible) return { synced: false, added: false, symbols: [] };
+  if (current.symbols.includes(symbol)) {
+    return { synced: true, added: false, symbols: current.symbols };
+  }
+  if (!addIfMissing) {
+    return { synced: true, added: false, symbols: current.symbols };
+  }
+  // Open symbol search, type the symbol, and add to active watchlist.
+  const added = await addSymbolToWatchlistInternal(page, symbol);
+  const after = await readWatchlist(page);
+  return { synced: true, added, symbols: after.symbols };
+}
+
+async function addSymbolToWatchlistInternal(page: Page, symbol: string): Promise<boolean> {
+  // Strategy 1: header star button for active symbol.
+  const star = page.locator('[class*="header-toolbar"] [class*="star"], button[aria-label*="watchlist"], [class*="symbol"] [class*="star"]').first();
+  if (await star.isVisible({ timeout: 800 }).catch(() => false)) {
+    const active = await star.evaluate((el) => el.getAttribute("aria-pressed") === "true" || el.classList.contains("active")).catch(() => false);
+    if (!active) {
+      await star.click({ timeout: 2000 }).catch(() => {});
+      await page.waitForTimeout(600);
+      return true;
+    }
+    return true;
+  }
+  // Strategy 2: symbol search "add to watchlist" context menu.
+  const openers = [
+    'button[aria-label="Change symbol"]',
+    '[data-qa-id="header-toolbar-symbol-search"]',
+    'button[aria-label*="Symbol search"]',
+    'div.symbol-edit-widget',
+  ];
+  for (const sel of openers) {
+    const el = page.locator(sel).first();
+    if (await el.isVisible({ timeout: 800 }).catch(() => false)) {
+      await el.click({ timeout: 2000 }).catch(() => {});
+      break;
+    }
+  }
+  await page.waitForTimeout(500);
+  const searchInput = page.locator('input[placeholder="Symbol, ISIN, or CUSIP"], input[placeholder*="ymbol"], input[type="text"]').first();
+  if (await searchInput.isVisible({ timeout: 1500 }).catch(() => false)) {
+    await searchInput.fill(symbol, { timeout: 1500 }).catch(() => {});
+    await page.waitForTimeout(700);
+    // Try to find a "+"/watchlist add icon in the search results.
+    const addBtn = page.locator('[class*="symbol-search"] [class*="add"], [class*="symbol-search"] [class*="star"], button[aria-label*="Add to watchlist"]').first();
+    if (await addBtn.isVisible({ timeout: 1000 }).catch(() => false)) {
+      await addBtn.click({ timeout: 2000 }).catch(() => {});
+      await page.keyboard.press("Escape").catch(() => {});
+      return true;
+    }
+  }
+  await page.keyboard.press("Escape").catch(() => {});
+  return false;
+}
+
 export async function addSymbolToWatchlist(page: Page, symbol: string): Promise<{ added: boolean }> {
   // Right-click the chart background -> Add to watchlist is unreliable; use the
   // symbol search "add to watchlist" star when available.
-  const star = page.locator('[class*="header-toolbar"] [class*="star"], button[aria-label*="watchlist"], [class*="symbol"] [class*="star"]').first();
-  if (!(await star.isVisible({ timeout: 800 }).catch(() => false))) return { added: false };
-  await star.click({ timeout: 2000 }).catch(() => {});
-  await page.waitForTimeout(600);
-  return { added: true };
+  const added = await addSymbolToWatchlistInternal(page, symbol);
+  return { added };
 }
 
 /**

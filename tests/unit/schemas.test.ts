@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { sSymbol, sTimeframe, sPineSource, sScriptName } from "../../src/validation/schemas.js";
+import { sSymbol, sTimeframe, sPineSource, sScriptName, tvWatchlistSyncIn, tvChartMetadataIn } from "../../src/validation/schemas.js";
 
 test("sSymbol accepts exchange tickers", () => {
   assert.equal(sSymbol.safeParse("NASDAQ:AAPL").success, true);
@@ -23,4 +23,16 @@ test("sPineSource requires version directive", () => {
 test("sScriptName rejects weird chars", () => {
   assert.equal(sScriptName.safeParse("FCPO Overlap").success, true);
   assert.equal(sScriptName.safeParse("../etc/passwd").success, false);
+});
+
+test("tvWatchlistSyncIn validates optional symbol and addIfMissing", () => {
+  assert.equal(tvWatchlistSyncIn.safeParse({ symbol: "NASDAQ:AAPL", addIfMissing: true }).success, true);
+  assert.equal(tvWatchlistSyncIn.safeParse({ addIfMissing: false }).success, true);
+  assert.equal(tvWatchlistSyncIn.safeParse({ symbol: "bad;cmd" }).success, false);
+  assert.equal(tvWatchlistSyncIn.safeParse({ extra: true }).success, false);
+});
+
+test("tvChartMetadataIn accepts no args", () => {
+  assert.equal(tvChartMetadataIn.safeParse({}).success, true);
+  assert.equal(tvChartMetadataIn.safeParse({ extra: 1 }).success, false);
 });

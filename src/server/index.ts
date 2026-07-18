@@ -20,10 +20,12 @@ import { allTools, runTool } from "../tools/registry.js";
 import { isEmergencyStopped } from "../permissions/policy.js";
 import { createApproval, listPending, listHistory, resolveApproval, cancelAllPending, awaitApproval } from "../permissions/approvals.js";
 import { startDashboard } from "../dashboard/server.js";
+import { startHttpTransportIfEnabled } from "./http.js";
 
 const APPROVAL_TIMEOUT_MS = Number(process.env.TV_APPROVAL_TIMEOUT_MS ?? 120_000);
 const AUTO_APPROVE = process.env.TV_AUTO_APPROVE_DESTRUCTIVE === "1";
 const DASHBOARD_PORT = Number(process.env.TV_DASHBOARD_PORT ?? 3939);
+const HTTP_MCP_PORT = Number(process.env.TV_MCP_HTTP_PORT ?? 3940);
 
 interface CallToolRequest {
   params: { name: string; arguments?: Record<string, unknown> | undefined };
@@ -90,14 +92,23 @@ async function main(): Promise<void> {
     logger.warn({ err: String(e) }, "Dashboard failed to start (continuing without it)");
   });
 
+  // Optional Streamable HTTP transport alongside STDIO.
+  const httpTransport = await startHttpTransportIfEnabled(server, HTTP_MCP_PORT).catch((e) => {
+    logger.warn({ err: String(e) }, "HTTP MCP transport failed to start (continuing)");
+    return undefined;
+  });
+
   const transport = new StdioServerTransport();
   await server.connect(transport);
   audit({ ts: new Date().toISOString(), tool: "server_start", result: "ok" });
-  logger.info({ port: DASHBOARD_PORT }, "tradingview-chrome-mcp started (STDIO + dashboard)");
+  logger.info({ dashboardPort: DASHBOARD_PORT, httpMcpPort: httpTransport ? HTTP_MCP_PORT : null }, "tradingview-chrome-mcp started");
 
   const shutdown = async (sig: string) => {
     logger.info({ sig }, "shutting down");
     cancelAllPending();
+    if (httpTransport) {
+      await httpTransport.dispose?.().catch(() => {});
+    }
     audit({ ts: new Date().toISOString(), tool: "server_stop", result: "ok" });
     process.exit(0);
   };

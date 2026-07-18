@@ -36,7 +36,7 @@
 
 ## Layers
 
-1. **MCP server (`src/server`)** - STDIO transport, `tools/list` and `tools/call` dispatch. Boots the dashboard in-process so the approval queue is shared in memory.
+1. **MCP server (`src/server`)** - STDIO transport by default (`StdioServerTransport`), `tools/list` and `tools/call` dispatch. Optional Streamable HTTP transport (`src/server/http.ts`) on `127.0.0.1:3940`. Boots the dashboard in-process so the approval queue is shared in memory.
 2. **Tool registry (`src/tools`)** - Each tool declares its JSON schema, whether it is destructive, and its handler. Handlers are thin: they resolve the active TradingView tab and call into the adapter.
 3. **Permissions (`src/permissions`)** - Domain allowlist, emergency stop, rate limit, action-chain cap, and the pending-approval queue. `evaluate()` returns `allow / block / deny`. `block` is retryable after approval; `deny` is terminal.
 4. **Browser controller (`src/browser`)** - Attaches to Chrome over CDP using Playwright `connectOverCDP`. Lists tabs, finds TradingView tabs, caches the active one. Auto-launch of the user Chrome is opt-in (`TV_ALLOW_CHROME_LAUNCH=1`) to avoid silently reusing a profile that is already running.
@@ -54,4 +54,4 @@
 
 ## Transport roadmap
 
-STDIO is shipped. To add Streamable HTTP, swap `StdioServerTransport` for an HTTP transport in `src/server/index.ts` and run the dashboard and MCP on separate ports. The tool registry and adapter are transport-agnostic.
+STDIO is shipped. Streamable HTTP is implemented in `src/server/http.ts` and enabled via `TV_MCP_HTTP_PORT` or `TV_ENABLE_HTTP_MCP`; it runs on a separate port from the dashboard. The tool registry and adapter are transport-agnostic.

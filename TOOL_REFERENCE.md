@@ -70,6 +70,9 @@ Adds the current script to the chart via `button[data-qa-id="add-script-to-chart
 ### `tv_rename_script` (destructive)
 Renames the current Pine script via the editor title menu (`[data-qa-id="pine-script-title-button"]` → "Rename…"). Input `{ name }`. Approval-gated. Returns `{ renamed, oldName, newName, dialog }`.
 
+### `tv_chart_metadata` (read-only)
+Reads visible chart metadata from the legend/panes: `{ symbol, timeframe, visibleIndicators, overlays, strategies, paneCount }`.
+
 ## TradingView - chart configuration
 
 ### `tv_change_symbol` (destructive)
@@ -95,6 +98,9 @@ Deletes the alert at a zero-based index. Input `{ index }`. Approval-gated.
 ### `tv_watchlist_add_symbol` (destructive)
 Adds the current chart symbol to the watchlist via the star button. Input `{ symbol }`. Approval-gated.
 
+### `tv_watchlist_sync` (destructive when adding)
+Reads the active watchlist and optionally adds the current/requested symbol if missing. Input `{ symbol?, addIfMissing? }`. If `addIfMissing` is true (default) and the symbol is missing, approval is required. Returns `{ synced, added, symbols }`.
+
 ### `tv_chart_data_export` (destructive)
 Triggers chart-data CSV export and saves the download to `./exports`. Approval-gated.
 
@@ -109,4 +115,9 @@ Draws a trend line via the left drawing toolbar using two mouse clicks. Best-eff
 - `ok: false, error: string` - runtime error; see `logs/audit.jsonl`.
 
 ## Live-verified selectors (2026-07-18)
-`button[aria-label="Change symbol"]`, `button[aria-label="Change interval"]`, `button[data-name="pine-dialog-button"]`, `[data-qa-id="pine-script-save-button"]`, `[data-qa-id="add-script-to-chart"]`, `[data-qa-id="pine-script-title-button"]`, `input[placeholder="Symbol, ISIN, or CUSIP"]`, `[aria-label="Rename..."]`. Regression-tested in `tests/unit/selectors.test.ts`.
+`button[aria-label="Change symbol"]`, `button[aria-label="Change interval"]`, `button[data-name="pine-dialog-button"]`, `[data-qa-id="pine-script-save-button"]`, `[data-qa-id="add-script-to-chart"]`, `[data-qa-id="pine-script-title-button"]`, `input[placeholder="Symbol, ISIN, or CUSIP"]`, `[aria-label="Rename..."]`, `[class*="watchlist"] [class*="symbol"]`. Regression-tested in `tests/unit/selectors.test.ts`.
+
+## Transports
+
+- **STDIO** is the default. Use with Codex/Claude Code MCP clients.
+- **Streamable HTTP** is opt-in via `TV_MCP_HTTP_PORT=3940` or `TV_ENABLE_HTTP_MCP=1`. Binds to `127.0.0.1` only with localhost CORS. Useful for remote/local HTTP clients or future web dashboards.

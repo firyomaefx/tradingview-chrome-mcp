@@ -1,8 +1,16 @@
 # Install (Windows)
 
-## Quick
+## One-line standalone installer (no source build)
+
 ```powershell
-git clone <repo>; cd tradingview-chrome-mcp
+irm https://raw.githubusercontent.com/firyomaefx/tradingview-chrome-mcp/main/scripts/install-cli.ps1 | iex
+```
+
+This downloads the latest release, installs to `%LOCALAPPDATA%\tradingview-chrome-mcp`, creates a Start-menu shortcut, and registers with Codex. Requires Node.js but no `npm install`/`npm run build`.
+
+## Quick (from source)
+```powershell
+git clone https://github.com/firyomaefx/tradingview-chrome-mcp.git; cd tradingview-chrome-mcp
 npm install
 npm run build
 pwsh scripts/register-codex.ps1
@@ -10,13 +18,16 @@ pwsh scripts/start-chrome.ps1   # start Chrome with remote debugging, then log i
 pwsh scripts/run.ps1            # run the server + dashboard; open http://127.0.0.1:3939
 ```
 
-## Packaged install (Phase 5)
+## Packaged install from source (Phase 5)
 ```powershell
 pwsh scripts/install.ps1          # builds, copies to %LOCALAPPDATA%, Start-menu shortcut, health check, registers Codex, auto-reconnect launcher
 pwsh scripts/uninstall.ps1         # removes shortcut, install dir, Codex registration (source untouched)
 ```
 
 The install launcher (`run.cmd`) auto-restarts the server 3s after a crash, so a transient Chrome disconnect self-heals.
+
+## Streamable HTTP transport (optional)
+Set `TV_MCP_HTTP_PORT=3940` (or `TV_ENABLE_HTTP_MCP=1`) to expose the MCP server over Streamable HTTP on `127.0.0.1:3940` alongside STDIO. Useful for HTTP clients or future web dashboards.
 
 ## Chrome extension (optional)
 1. Open `chrome://extensions`.

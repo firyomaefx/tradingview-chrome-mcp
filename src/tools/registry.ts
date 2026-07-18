@@ -481,6 +481,40 @@ const tools: ToolDef[] = [
     },
   },
   {
+    name: "tv_watchlist_sync",
+    description: "Read the active watchlist and optionally add the current/requested symbol if missing. DESTRUCTIVE when it adds a symbol.",
+    destructive: true,
+    inputSchema: schemaFromProperties({
+      symbol: { type: "string", description: "Symbol to ensure is in the watchlist (defaults to active chart symbol if omitted)." },
+      addIfMissing: { type: "boolean", description: "Add the symbol if it is not already in the watchlist (default true)." },
+    }),
+    async run(args, ctx) {
+      const t = await tab();
+      const state = await tv.readChartState(t.page);
+      const symbol = typeof args.symbol === "string" ? args.symbol : (state.symbol ?? "");
+      if (!symbol) return { ok: false, error: "No symbol provided and no active chart symbol found" };
+      const addIfMissing = args.addIfMissing !== false;
+      if (addIfMissing) {
+        const approved = await ctx.requestApproval(`Sync watchlist: add ${symbol} if missing?`);
+        if (!approved) return blocked("Watchlist sync cancelled by user");
+      }
+      const res = await tv.syncWatchlist(t.page, symbol, addIfMissing);
+      audit({ ts: new Date().toISOString(), tool: "tv_watchlist_sync", args: { symbol, addIfMissing }, result: res.synced ? "ok" : "error", tabUrl: t.url });
+      return { ok: res.synced, data: res, tabUrl: t.url };
+    },
+  },
+  {
+    name: "tv_chart_metadata",
+    description: "Read visible chart metadata: symbol, timeframe, indicators, strategies, overlays, and pane count. Read-only.",
+    destructive: false,
+    inputSchema: emptySchema(),
+    async run() {
+      const t = await tab();
+      const res = await tv.readChartMetadata(t.page);
+      return { ok: true, data: res, tabUrl: t.url };
+    },
+  },
+  {
     name: "tv_chart_data_export",
     description: "Export the current chart data to CSV. Saves the download to ./exports. DESTRUCTIVE: triggers a browser download.",
     destructive: true,

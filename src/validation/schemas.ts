@@ -77,6 +77,13 @@ export const tvRenameScriptIn = z.object({
 export const tvChangeSymbolIn = z.object({
   symbol: sSymbol,
 }).strict();
+
+export const tvWatchlistSyncIn = z.object({
+  symbol: sSymbol.optional(),
+  addIfMissing: z.boolean().optional(),
+}).strict();
+
+export const tvChartMetadataIn = sVoid;
 export const tvChangeTimeframeIn = z.object({
   timeframe: sTimeframe,
 }).strict();
