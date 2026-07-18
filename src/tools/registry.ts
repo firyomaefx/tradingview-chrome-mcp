@@ -101,7 +101,7 @@ const tools: ToolDef[] = [
         ok: true,
         data: {
           name: "tradingview-chrome-mcp",
-          version: "0.1.0",
+          version: "0.2.0",
           emergencyStop: policy.isEmergencyStopped(),
           allowedDomains: policy.ALLOWED_DOMAINS,
         },

@@ -1,6 +1,6 @@
 {
   "name": "tradingview-chrome-mcp",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Local MCP server that lets Codex safely control Chrome for TradingView activities (read chart, edit Pine Script v6, manage alerts, export data).",
   "type": "module",
   "private": true,
