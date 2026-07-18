@@ -11,9 +11,11 @@
  */
 import { config } from "@/lib/config";
 import * as schemas from "@/lib/validation/schemas";
+import { type DetectedClient } from "@/lib/detect/client";
 
 export interface ToolContext {
   requestApproval: (message: string) => Promise<boolean>;
+  detectedClient?: DetectedClient;
 }
 
 export interface ToolResult {
@@ -123,7 +125,7 @@ const tools: ToolDef[] = [
     description: "Health check. Returns server version, backend, emergency-stop state, and MCP client info.",
     destructive: false,
     inputSchema: emptySchema(),
-    async run() {
+    async run(_a, ctx) {
       return {
         ok: true,
         data: {
@@ -131,7 +133,7 @@ const tools: ToolDef[] = [
           version: "0.2.0",
           backend: config.toolBackend,
           emergencyStop,
-          detectedClient: { name: "Remote SSE MCP client", kind: "unknown", confidence: "low" },
+          detectedClient: ctx.detectedClient ?? { name: "Remote SSE MCP client", clientId: "unknown", confidence: "low", source: "default" },
         },
       };
     },
@@ -141,10 +143,10 @@ const tools: ToolDef[] = [
     description: "Report the remote MCP client connected via SSE. In hosted mode this is a remote client; use the local Chrome MCP server for parent-process detection.",
     destructive: false,
     inputSchema: emptySchema(),
-    async run() {
+    async run(_a, ctx) {
       return {
         ok: true,
-        data: { name: "Remote SSE MCP client", kind: "unknown", confidence: "low" },
+        data: ctx.detectedClient ?? { name: "Remote SSE MCP client", clientId: "unknown", confidence: "low", source: "default" },
       };
     },
   },
@@ -193,8 +195,8 @@ const tools: ToolDef[] = [
     description: "Read the current market-data symbol, timeframe, and backend state.",
     destructive: false,
     inputSchema: emptySchema(),
-    async run() {
-      return { ok: true, data: currentState() };
+    async run(_a, ctx) {
+      return { ok: true, data: { ...currentState(), detectedClient: ctx.detectedClient ?? { name: "Remote SSE MCP client", clientId: "unknown", confidence: "low", source: "default" } } };
     },
   },
   {
@@ -202,8 +204,8 @@ const tools: ToolDef[] = [
     description: "Alias for tv_status.",
     destructive: false,
     inputSchema: emptySchema(),
-    async run() {
-      return { ok: true, data: currentState() };
+    async run(_a, ctx) {
+      return { ok: true, data: { ...currentState(), detectedClient: ctx.detectedClient ?? { name: "Remote SSE MCP client", clientId: "unknown", confidence: "low", source: "default" } } };
     },
   },
   {

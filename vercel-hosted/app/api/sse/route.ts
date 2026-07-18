@@ -4,6 +4,7 @@ import { createMcpServer, type ToolRegistry } from "@/lib/server/mcp-server";
 import { validateKey, type ApiKey } from "@/lib/auth/api-keys";
 import { createSession, deleteSession } from "@/lib/sessions/store";
 import { allTools, runTool, type ToolDef } from "@/lib/tools/registry";
+import { detectRemoteClient, type DetectedClient } from "@/lib/detect/client";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -13,6 +14,7 @@ const encoder = new TextEncoder();
 interface Session {
   transport: AppRouterSSETransport;
   key: string;
+  client: DetectedClient;
 }
 
 // Global session registry. In production, sessions are also persisted to Redis
@@ -28,10 +30,10 @@ class AppRouterSSETransport {
   controller: ReadableStreamDefaultController<Uint8Array>;
   heartbeat?: NodeJS.Timeout;
 
-  constructor(controller: ReadableStreamDefaultController<Uint8Array>, key: string) {
+  constructor(controller: ReadableStreamDefaultController<Uint8Array>, key: string, client: DetectedClient) {
     this.sessionId = crypto.randomUUID();
     this.controller = controller;
-    sessions.set(this.sessionId, { transport: this, key });
+    sessions.set(this.sessionId, { transport: this, key, client });
     createSession(this.sessionId, key).catch((err) => {
       console.error("[sse] failed to persist session:", err);
     });
@@ -64,7 +66,7 @@ class AppRouterSSETransport {
   }
 }
 
-function buildRegistry(apiKey: ApiKey): ToolRegistry {
+function buildRegistry(apiKey: ApiKey, client: DetectedClient): ToolRegistry {
   const baseTools = allTools();
   const tools: ToolDef[] = apiKey.allowed_tools
     ? baseTools.filter((t) => apiKey.allowed_tools!.includes(t.name))
@@ -72,7 +74,10 @@ function buildRegistry(apiKey: ApiKey): ToolRegistry {
 
   return {
     getAllTools: () => tools,
-    runTool,
+    runTool: async (name, args, ctx) => {
+      const result = await runTool(name, args, { ...ctx, detectedClient: client });
+      return result;
+    },
   };
 }
 
@@ -89,13 +94,23 @@ export async function GET(req: NextRequest) {
     return new Response("Unauthorized: invalid key", { status: 401 });
   }
 
+  // Detect the connecting LLM / MCP client from headers or query param.
+  const client = detectRemoteClient(
+    req.headers.get("user-agent") ?? "",
+    req.headers,
+    searchParams.get("client")
+  );
+  console.log("[sse] detected client:", client.clientId, client.source, client.confidence);
+
   const stream = new ReadableStream<Uint8Array>({
     start(controller) {
-      const transport = new AppRouterSSETransport(controller, key);
-      const registry = buildRegistry(apiKey);
+      const transport = new AppRouterSSETransport(controller, key, client);
+      const registry = buildRegistry(apiKey, client);
       const server = createMcpServer(registry, {
         userId: apiKey.label ?? apiKey.id,
         requestApproval: async () => true,
+        clientId: client.clientId,
+        detectedClient: client,
       });
 
       server.connect(transport).catch((err) => {
@@ -133,4 +148,9 @@ export async function GET(req: NextRequest) {
       Connection: "keep-alive",
     },
   });
+}
+
+// Helper used by /api/messages to resolve the client for a session.
+export function getSessionClient(sessionId: string): DetectedClient | undefined {
+  return sessions.get(sessionId)?.client;
 }

@@ -17,6 +17,8 @@ import type { ToolDef, ToolContext, ToolResult } from "@/lib/tools/registry";
 export interface ServerContext {
   userId: string;
   requestApproval: (message: string) => Promise<boolean>;
+  clientId?: string;
+  detectedClient?: import("@/lib/detect/client").DetectedClient;
 }
 
 export interface ToolRegistry {
@@ -83,6 +85,7 @@ export function createMcpServer(registry: ToolRegistry, context: ServerContext) 
       try {
         const result = await registry.runTool(name, args, {
           requestApproval: context.requestApproval,
+          detectedClient: context.detectedClient,
         });
 
         success = result.ok && !result.denied && !result.blocked;
@@ -128,6 +131,7 @@ export function createMcpServer(registry: ToolRegistry, context: ServerContext) 
           user_id: context.userId,
           tool_name: name,
           parameters: redactParameters(name, args),
+          client_id: context.clientId,
           duration_ms: duration,
           success,
           error_message: errorMessage,

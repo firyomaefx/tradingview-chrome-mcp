@@ -2,6 +2,7 @@ import { type NextRequest } from "next/server";
 import type { JSONRPCMessage } from "@modelcontextprotocol/sdk/types";
 import { validateKey } from "@/lib/auth/api-keys";
 import { getSession, refreshSession } from "@/lib/sessions/store";
+import { getSessionClient } from "@/app/api/sse/route";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -53,6 +54,23 @@ export async function POST(req: NextRequest) {
       "Session transport is not available on this instance; please reconnect via /api/sse",
       { status: 409 }
     );
+  }
+
+  // Best-effort remote client detection for this request. Usually the client
+  // identity is established during SSE connection and is unchanged; this path
+  // catches standalone POST probes or clients that re-send identifying headers.
+  const fallbackClient = {
+    clientId: searchParams.get("client") ?? "unknown",
+    source: searchParams.has("client") ? "query" : "default",
+    confidence: searchParams.has("client") ? "medium" : "low",
+    name: searchParams.has("client")
+      ? `Remote client (${searchParams.get("client")})`
+      : "Remote SSE MCP client",
+  } as const;
+  const client = getSessionClient(sessionId) ?? fallbackClient;
+
+  if (client.source !== "default") {
+    console.log("[messages] client identity:", client.clientId, client.source, client.confidence);
   }
 
   const body = (await req.json()) as JSONRPCMessage;

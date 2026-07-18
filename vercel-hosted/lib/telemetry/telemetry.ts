@@ -11,6 +11,7 @@ export interface TelemetryPayload {
   duration_ms: number;
   success: boolean;
   error_message?: string;
+  client_id?: string;
 }
 
 export function redactParameters(
@@ -37,6 +38,7 @@ export function logUsage(payload: TelemetryPayload): void {
       user_id: payload.user_id,
       tool_name: payload.tool_name,
       parameters: payload.parameters,
+      client_id: payload.client_id ?? null,
       duration_ms: payload.duration_ms,
       success: payload.success,
       error_message: payload.error_message ?? null,
