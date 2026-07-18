@@ -27,7 +27,7 @@
 - Chrome extension is a minimal MV3 connector (badge + popup + content snapshot); no trading logic.
 
 ## Repository
-- Pushed to GitHub: https://github.com/firyomaefx/tradingview-chrome-mcp (private, default branch `main`).
+- Pushed to GitHub: https://github.com/firyomaefx/tradingview-chrome-mcp (public, default branch `main`).
 - Initial commit `e3045f2` includes the full codebase; local-only artifacts (logs, screenshots, exports, .codex/, backups, tsconfig.tsbuildinfo) are excluded via `.gitignore`.
 
 ## Decisions
