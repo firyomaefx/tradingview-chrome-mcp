@@ -6,7 +6,9 @@
 irm https://raw.githubusercontent.com/firyomaefx/tradingview-chrome-mcp/main/scripts/install-cli.ps1 | iex
 ```
 
-This downloads the latest release, installs to `%LOCALAPPDATA%\tradingview-chrome-mcp`, creates a Start-menu shortcut, and registers with Codex. Requires Node.js but no `npm install`/`npm run build`.
+This downloads the latest `tradingview-chrome-mcp-windows.zip` release asset, installs to `%LOCALAPPDATA%\tradingview-chrome-mcp`, creates a Start-menu shortcut, and registers with Codex. Requires Node.js but no `npm install`/`npm run build`.
+
+> The one-liner only works after a release exists. Releases are created automatically by the [GitHub Actions `release.yml`](.github/workflows/release.yml) workflow when a `v*.*.*` tag is pushed.
 
 ## Quick (from source)
 ```powershell

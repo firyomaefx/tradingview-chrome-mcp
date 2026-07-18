@@ -1,0 +1,72 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Version tag to create (e.g. v0.1.0)"
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Run tests
+        run: npm test
+
+      - name: Build
+        run: npm run build
+
+      - name: Smoke test
+        run: node scripts/smoke.mjs
+        timeout-minutes: 1
+
+      - name: Strip dev dependencies from release bundle
+        run: npm prune --omit=dev
+
+      - name: Create release zip
+        shell: pwsh
+        run: |
+          $items = "dist", "node_modules", "package.json", "package-lock.json"
+          Compress-Archive -Path $items -DestinationPath tradingview-chrome-mcp-windows.zip -Force
+          Get-Item tradingview-chrome-mcp-windows.zip | Select-Object Name, Length
+
+      - name: Create GitHub Release and upload asset
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          $tag = "${{ github.ref_name }}"
+          if ($tag -eq "") {
+            $tag = "${{ inputs.tag }}"
+          }
+          if (-not $tag) {
+            Write-Error "No tag found. Push a tag like v0.1.0 or provide one via workflow_dispatch."
+            exit 1
+          }
+          gh release create $tag tradingview-chrome-mcp-windows.zip `
+            --title "$tag" `
+            --generate-notes `
+            --repo "${{ github.repository }}"

@@ -40,7 +40,7 @@
 - Selector fragility is now guarded by `tests/unit/selectors.test.ts` (tiny inline HTML fixture + linkedom), not a giant DOM dump.
 
 ## Next priorities
+- Create a `v*.*.*` tag to trigger the new release workflow and verify the `tradingview-chrome-mcp-windows.zip` asset.
 - Live-verify `tv_rename_script`, `tv_chart_metadata`, and `tv_watchlist_sync` end-to-end.
 - Live-verify alerts/watchlist/export individually against a test layout.
 - Add a "New layout" creator once TradingView exposes the menu item.
-- Set up a GitHub Actions release pipeline that builds a Windows zip for `install-cli.ps1`.

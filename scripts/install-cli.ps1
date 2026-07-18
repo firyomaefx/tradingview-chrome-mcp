@@ -93,6 +93,17 @@ goto loop
 "@
 Set-Content -Encoding ascii -Path "$InstallDir\run.cmd" $launcher
 
+# Ensure Playwright browsers are available for CDP attach (no-op if already cached).
+try {
+  $npx = (Get-Command npx -ErrorAction SilentlyContinue).Path
+  if ($npx) {
+    Write-Host "Ensuring Playwright Chromium browser is cached..."
+    Start-Process -FilePath $npx -ArgumentList "playwright","install","chromium" -Wait -NoNewWindow -ErrorAction SilentlyContinue | Out-Null
+  }
+} catch {
+  Write-Host "Could not auto-install Playwright Chromium; the server will still work if Chrome is available."
+}
+
 # Start-menu shortcut.
 $startMenu = "$env:APPDATA\Microsoft\Windows\Start Menu\Programs\tradingview-chrome-mcp"
 New-Item -ItemType Directory -Force -Path $startMenu | Out-Null
@@ -125,3 +136,8 @@ Write-Host "Start menu: tradingview-chrome-mcp"
 Write-Host "Dashboard: http://127.0.0.1:3939"
 Write-Host "Health check: $InstallDir\health.cmd"
 if (-not $NoCodex) { Write-Host "Codex MCP: run 'codex mcp list' to verify." }
+Write-Host ""
+Write-Host "Next steps:"
+Write-Host "  1. Close all Chrome windows, then run scripts/start-chrome.ps1 (or start Chrome with --remote-debugging-port=9222)."
+Write-Host "  2. Log in to TradingView and open a chart."
+Write-Host "  3. Double-click the Start-menu shortcut or run $InstallDir\run.cmd."
