@@ -1,107 +1,144 @@
-# tradingview-chrome-mcp
+# TradingView Chrome MCP
 
-A **standalone local MCP server** that lets Codex safely control Chrome for TradingView: read charts, edit Pine Script v6, manage indicators, capture screenshots, read the Strategy Tester, and sync watchlists. No live-trade execution. No remote telemetry.
+[![CI](https://github.com/firyomaefx/tradingview-chrome-mcp/actions/workflows/ci.yml/badge.svg)](https://github.com/firyomaefx/tradingview-chrome-mcp/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![Node.js >=20.10](https://img.shields.io/badge/node-%3E%3D20.10-339933?logo=nodedotjs)](package.json)
 
-The server speaks the Model Context Protocol over **STDIO** (default) and optionally **Streamable HTTP** on `http://127.0.0.1:3940`, plus a local control-panel dashboard on `http://127.0.0.1:3939` for status, approvals, history, and the emergency-stop button.
+**Let your AI assistant drive Chrome for TradingView.**
 
-A separate **Vercel-hosted SSE fork** (`vercel-hosted/`) is included for teams that want a serverless market-data MCP endpoint with privacy-first usage telemetry. See [HOSTED.md](HOSTED.md) for that path.
+A standalone, local MCP server that connects Claude, Codex CLI, ChatGPT Desktop, Cursor, Windsurf, or any MCP host to your existing TradingView tab in Chrome. Read charts, edit Pine Script v6, run backtests, manage watchlists, set alerts, take screenshots — all without giving anyone your login or letting the AI trade on your behalf.
+
+- 🖥️ **Local-first**: runs on your machine, reuses your logged-in Chrome profile.
+- 🔒 **Approval-gated**: destructive actions wait for your OK in the dashboard.
+- 🌐 **Self-contained**: STDIO for MCP hosts, optional HTTP transport, built-in control dashboard.
+- ☁️ **Optional cloud fork**: a separate Vercel-hosted SSE edition is included for team market-data use.
 
 ---
 
-## Quick start (standalone Windows app)
+## 🆕 Latest update — just pushed to GitHub
 
-The fastest way to run this is as a **standalone Windows application** with a one-click launcher.
+The most recent `main` push adds **MCP host client detection** and a round of polish:
 
-### 1. Install (one-line, no build)
+- **The server now knows which AI is talking to it.** `mcp_client_info` detects Claude Desktop, Claude Code, Anthropic Codex CLI, ChatGPT Desktop, Cursor, Windsurf, VS Code, JetBrains, and other MCP hosts by walking the parent process chain. The result is also included in `ping`, `tv_status`, and `tv_read_chart` so the model can adapt its responses.
+- **Tool count is now 33** — diagnostics, chart reading, Pine Script editing, alerts, watchlists, layouts, screenshots, strategy tester, and safety tools.
+- **Codex CLI installer is more forgiving.** If `codex` is not installed, the one-line installer warns and prints manual steps instead of crashing.
+- **CI is green on every push.** 41 local unit tests + 4 hosted registry tests pass on both Windows (`ci`) and Ubuntu (`hosted-app`).
+- **Docs refreshed.** README, TOOL_REFERENCE, and CONTEXT are updated with the current state.
 
-Open PowerShell and run:
+[See the commit →](https://github.com/firyomaefx/tradingview-chrome-mcp/commit/3bead48)
+
+---
+
+## What you can ask the AI
+
+Because the server controls Chrome through the Chrome DevTools Protocol, plain English commands map directly to TradingView actions:
+
+- *“Read my chart”* → returns the current symbol, timeframe, visible indicators, and strategy state.
+- *“Create a Pine Script v6 EMA crossover indicator and add it to the chart”* → opens the editor, writes the script, compiles, saves, and attaches it.
+- *“Change symbol to NASDAQ:AAPL and switch to the 15-minute timeframe”* → changes the chart after dashboard approval.
+- *“Show me the Strategy Tester results”* → reads backtest performance from the open panel.
+- *“Add BTCUSD to my watchlist and set an alert when it crosses $70,000”* → syncs the watchlist and creates the alert.
+- *“Take a screenshot of the chart”* → captures the current tab.
+
+No API keys, no TradingView credentials, and no live trades.
+
+---
+
+## Quick start — 2 minutes
+
+### Option A: Standalone Windows app (recommended)
+
+Copy this into PowerShell and press Enter:
 
 ```powershell
 irm https://raw.githubusercontent.com/firyomaefx/tradingview-chrome-mcp/main/scripts/install-cli.ps1 | iex
 ```
 
-This downloads the latest release zip, installs to `%LOCALAPPDATA%\tradingview-chrome-mcp`, creates a Start-menu shortcut, and registers the server with Codex **if the Codex CLI is installed**. Requires Node.js but **no npm build step**.
+Then double-click the **TradingView MCP** shortcut on your desktop.
 
-> If you see a warning that `codex` was not found, install the Codex CLI first (`npm install -g @anthropic-ai/codex-cli`) or register the server manually.
+What happens:
+1. Downloads the latest release into `%LOCALAPPDATA%\tradingview-chrome-mcp`.
+2. Creates Start-menu + desktop shortcuts.
+3. Registers with the Codex CLI if it is installed; otherwise tells you how to do it manually.
+4. On launch, detects or starts Chrome with `--remote-debugging-port=9222`.
+5. Opens the control dashboard at `http://127.0.0.1:3939`.
 
-### 2. Launch
-
-Double-click the **"TradingView MCP"** desktop shortcut, or open the Start-menu entry. On first launch it will:
-
-1. Detect whether Chrome already has the debug port open.
-2. If not, launch Chrome with `--remote-debugging-port=9222` on your real profile.
-3. Start the MCP server + dashboard in the background.
-4. Open `http://127.0.0.1:3939` in your browser.
-5. Create a desktop shortcut so future launches are truly one-click.
-
-Alternatively, run from PowerShell:
+### Option B: From source (any OS)
 
 ```powershell
-# If you installed via the one-liner:
-pwsh "$env:LOCALAPPDATA\tradingview-chrome-mcp\scripts\Launch-TV-MCP.ps1" -CreateShortcut
-
-# Or from a cloned repo:
+git clone https://github.com/firyomaefx/tradingview-chrome-mcp.git
+cd tradingview-chrome-mcp
+npm install
+npm run build
 pwsh scripts/Launch-TV-MCP.ps1 -CreateShortcut
 ```
 
-### 3. Use in Codex
+### Option C: Vercel-hosted market-data fork
 
-Once launched, ask Codex anything like:
-
-- "Read my TradingView chart"
-- "Create a Pine Script v6 EMA crossover indicator and add it to the chart"
-- "Change symbol to NASDAQ:AAPL and switch timeframe to 15 minutes"
-- "Take a screenshot of the chart"
-
-Destructive actions (symbol change, Pine save, layout switch, etc.) pop up in the dashboard for approval.
+For a serverless SSE MCP endpoint with privacy-first telemetry, see [`vercel-hosted/`](vercel-hosted/) and [`HOSTED.md`](HOSTED.md).
 
 ---
 
-## Why this design
+## Installation options at a glance
 
-- **Standalone local MCP server** (STDIO + optional Streamable HTTP) linked to Codex through MCP.
-- **Reuses your existing logged-in Chrome session** via the Chrome DevTools Protocol. No separate temp profile unless you opt in.
-- **Domain allowlist** (`tradingview.com`, `www.tradingview.com`) and **destructive-action approvals** gate every write.
-- **Local-only audit log** of every action with screenshots and tab URLs.
-- **Emergency stop** kills all tool execution immediately.
-- **No remote telemetry** in the local server by default.
+| Method | Best for | Build step | One-click launcher |
+|---|---|---|---|
+| **One-line PowerShell installer** | Windows users who want an app | No | Yes |
+| **Clone + build from source** | Developers or macOS/Linux | Yes | Yes (`Launch-TV-MCP.ps1`) |
+| **Vercel-hosted SSE fork** | Teams needing a remote market-data MCP | Yes (Next.js) | No |
 
----
-
-## Requirements
-
-- Node.js >= 20.10 (tested on Node 25)
-- Google Chrome (or any Chromium with `--remote-debugging-port` support)
-- A TradingView account and at least one open chart tab
+Full details: [`INSTALL.md`](INSTALL.md) · Tool schemas: [`TOOL_REFERENCE.md`](TOOL_REFERENCE.md) · Architecture: [`ARCHITECTURE.md`](ARCHITECTURE.md) · Cloud edition: [`HOSTED.md`](HOSTED.md)
 
 ---
 
-## Installation options
+## Feature highlights
 
-| Method | When to use | Command |
-|---|---|---|
-| **One-line installer** (recommended) | Windows users who want a standalone app | [see above](#quick-start-standalone-windows-app) |
-| **From source** | Developers or non-Windows platforms | [INSTALL.md](INSTALL.md#option-b-install-from-source) |
-| **Vercel-hosted market-data fork** | Teams needing a remote SSE MCP endpoint | [HOSTED.md](HOSTED.md) |
-
-Detailed install and launch instructions are in [INSTALL.md](INSTALL.md).
+| Feature | What it means |
+|---|---|
+| **Chrome reuse** | Connects to your real Chrome profile; you stay logged into TradingView. |
+| **Approval gate** | Symbol changes, Pine saves, layout switches, and other writes wait for dashboard approval. |
+| **Emergency stop** | One button in the dashboard disables every tool instantly. |
+| **Local audit log** | Every action is written to `logs/audit.jsonl` on your machine. |
+| **No credential extraction** | The server never reads cookies, tokens, passwords, or wallet keys. |
+| **No remote telemetry (local)** | The local server does not phone home. The hosted fork is opt-in and separate. |
+| **MCP host detection** | Knows whether Claude, Codex, ChatGPT, Cursor, etc. launched it. |
+| **Pine Script v6 ready** | Create, patch, save, compile, rename, and attach scripts. |
+| **Alerts & watchlists** | Read, add, sync, and delete symbols and price alerts. |
+| **Screenshots & data export** | Capture the chart or export visible metadata. |
 
 ---
 
-## One-click launcher configuration
+## Tool categories
 
-Set these environment variables before running the launcher to customize behavior.
+The server exposes **33 tools** grouped by job:
+
+- **Diagnostics** — `ping`, `mcp_client_info`
+- **Chart control** — `tv_status`, `tv_read_chart`, `tv_chart_metadata`, `tv_change_symbol`, `tv_change_timeframe`
+- **Pine Script** — `tv_open_pine_editor`, `tv_read_pine_source`, `tv_pine_create`, `tv_pine_patch`, `tv_pine_save`, `tv_pine_add_to_chart`, `tv_pine_compile_errors`, `tv_rename_script`
+- **Watchlists** — `tv_watchlist_read`, `tv_watchlist_add_symbol`, `tv_watchlist_sync`
+- **Alerts** — `tv_alert_create`, `tv_alert_list`, `tv_alert_delete`
+- **Layouts** — `tv_layout_list`, `tv_layout_switch`
+- **Utilities** — `tv_screenshot`, `tv_dismiss_dialogs`, `tv_read_strategy_tester`, `tv_chart_data_export`, `browser_status`
+- **Safety** — `emergency_stop`, `emergency_clear`
+
+See [`TOOL_REFERENCE.md`](TOOL_REFERENCE.md) for every input schema and return value.
+
+---
+
+## Configuration
+
+Set environment variables before launching to customize behavior:
 
 | Variable | Default | Purpose |
 |---|---|---|
-| `TV_DEFAULT_TRADINGVIEW_URL` | `https://www.tradingview.com/chart/` | Where to navigate if no chart tab is open. |
-| `TV_ALLOW_CHROME_LAUNCH` | `0` | Set to `1` to let the launcher start Chrome if none is found with a debug port. |
-| `TV_ALLOW_CHROME_KILL` | `0` | Set to `1` to let the launcher close conflicting Chrome instances. Prompts for typed confirmation. |
+| `TV_DEFAULT_TRADINGVIEW_URL` | `https://www.tradingview.com/chart/` | Chart URL to open when no tab exists. |
+| `TV_ALLOW_CHROME_LAUNCH` | `0` | Set to `1` to let the launcher start Chrome if none is found. |
+| `TV_ALLOW_CHROME_KILL` | `0` | Set to `1` to let the launcher close conflicting Chrome instances. |
 | `TV_DASHBOARD_PORT` | `3939` | Port for the local control dashboard. |
-| `TV_MCP_HTTP_PORT` | `3940` | Port for the optional Streamable HTTP transport. Set to `0` to disable. |
-| `TV_APPROVAL_TIMEOUT_MS` | `120000` | How long destructive actions wait for dashboard approval. |
+| `TV_MCP_HTTP_PORT` | `3940` | Port for the optional Streamable HTTP transport; set `0` to disable. |
+| `TV_APPROVAL_TIMEOUT_MS` | `120000` | How long destructive actions wait for your approval. |
 
-Example landing directly on XAUUSD:
+Example: open directly on XAUUSD
 
 ```powershell
 $env:TV_DEFAULT_TRADINGVIEW_URL = "https://www.tradingview.com/chart/?symbol=OANDA%3AXAUUSD"
@@ -110,35 +147,43 @@ pwsh scripts/Launch-TV-MCP.ps1
 
 ---
 
-## Available tools
+## Architecture in one picture
 
-The server exposes 30+ tools grouped into:
+```
+┌─────────────────┐      STDIO / HTTP       ┌──────────────────────┐
+│  MCP host       │  ───────────────────────▶  │  tradingview-chrome  │
+│  (Claude, Codex,│                           │  -mcp server         │
+│  ChatGPT, etc.) │                           │                      │
+└─────────────────┘                           │  ┌───────────────┐   │
+                                              │  │ Tool registry │   │
+                                              │  │ Policy /      │   │
+┌─────────────────┐      CDP                  │  │ Approval queue│   │
+│  Google Chrome  │  ───────────────────────▶  │  └───────┬───────┘   │
+│  (your profile) │                           │          │          │
+└─────────────────┘                           │  ┌───────▼───────┐   │
+                                              │  │ Playwright    │   │
+                                              │  │ DOM automation│   │
+                                              │  └───────────────┘   │
+                                              └──────────────────────┘
+                                                         │
+                                              ┌──────────▼──────────┐
+                                              │ Local dashboard     │
+                                              │ http://127.0.0.1:3939
+                                              └─────────────────────┘
+```
 
-- **Diagnostics**: `ping`, `mcp_client_info` (detects Claude, Codex, ChatGPT, Cursor, VS Code, etc.)
-- **Chart reading**: `tv_status`, `tv_read_chart`, `tv_chart_metadata`, `tv_change_symbol`, `tv_change_timeframe`
-- **Pine Script**: `tv_open_pine_editor`, `tv_read_pine_source`, `tv_pine_create`, `tv_pine_patch`, `tv_pine_save`, `tv_pine_add_to_chart`, `tv_pine_compile_errors`, `tv_rename_script`
-- **Watchlists**: `tv_watchlist_read`, `tv_watchlist_add_symbol`, `tv_watchlist_sync`
-- **Alerts**: `tv_alert_create`, `tv_alert_list`, `tv_alert_delete`
-- **Layouts**: `tv_layout_list`, `tv_layout_switch`
-- **Utilities**: `tv_screenshot`, `tv_dismiss_dialogs`, `tv_read_strategy_tester`, `tv_chart_data_export`, `browser_status`, `emergency_stop`, `emergency_clear`
-
-See [TOOL_REFERENCE.md](TOOL_REFERENCE.md) for full schema and semantics.
-
----
-
-## Architecture
-
-For component diagrams, invariants, and the transport roadmap, see [ARCHITECTURE.md](ARCHITECTURE.md).
+Read [`ARCHITECTURE.md`](ARCHITECTURE.md) for component diagrams, invariants, and transport details.
 
 ---
 
 ## Security & privacy
 
 - **No credential storage.** The server never reads, stores, or transmits cookies, tokens, or passwords.
-- **Local audit logs.** Every action is written to `logs/audit.jsonl` on your machine; inputs are redacted before logging.
+- **Local-only audit logs.** Every action is written to `logs/audit.jsonl`; sensitive inputs are redacted.
 - **Approval-gated writes.** Destructive tools require explicit dashboard approval.
-- **Emergency stop.** Instantly disables all tools.
-- **The hosted Vercel fork is opt-in and separate.** It only logs parameter allow-list keys (`symbol`, `ticker`, `timeframe`) for cache observability. See [HOSTED.md](HOSTED.md#security--privacy).
+- **Emergency stop.** Instantly disables all tool execution.
+- **Domain allowlist.** Browser tools only run on `tradingview.com` / `www.tradingview.com`.
+- **No remote telemetry in local mode.** The Vercel-hosted fork is separate and opt-in; it only logs parameter allow-list keys (`symbol`, `ticker`, `timeframe`) for cache observability. See [`HOSTED.md`](HOSTED.md#security--privacy).
 
 ---
 
@@ -146,26 +191,38 @@ For component diagrams, invariants, and the transport roadmap, see [ARCHITECTURE
 
 ```
 tradingview-chrome-mcp/
-├── src/                  # Local MCP server
-│   ├── server/           # STDIO + HTTP transports
-│   ├── tools/            # Tool registry
-│   ├── adapters/         # TradingView DOM automation
-│   ├── browser/          # Playwright/CDP controller
-│   ├── dashboard/        # Local Express control panel
-│   ├── permissions/      # Policy + approval queue
-│   ├── telemetry/        # Privacy-first telemetry helpers (disabled locally)
-│   ├── auth/             # API-key helpers (used by hosted fork)
-│   ├── sessions/         # Redis session store (used by hosted fork)
-│   ├── features/         # Runtime feature flags
-│   └── config.ts         # Centralized config
-├── scripts/              # Launchers, installer, helpers
+├── src/                    # Local MCP server
+│   ├── server/             # STDIO + HTTP transports
+│   ├── tools/              # Tool registry (33 tools)
+│   ├── adapters/           # TradingView DOM automation
+│   ├── browser/            # Playwright/CDP controller
+│   ├── dashboard/          # Local Express control panel
+│   ├── permissions/        # Policy + approval queue
+│   ├── detect/             # MCP host client detection
+│   ├── telemetry/          # Privacy-first telemetry helpers
+│   ├── auth/               # API-key helpers (hosted fork)
+│   ├── sessions/           # Redis session store (hosted fork)
+│   ├── features/           # Runtime feature flags
+│   └── config.ts           # Centralized config
+├── scripts/                # Launchers, installer, helpers
 ├── extension/              # Optional Chrome extension
 ├── vercel-hosted/          # Separate Vercel SSE fork
-└── tests/                  # Unit tests
+├── tests/                  # Unit + integration tests
+└── docs/                   # README, INSTALL, HOSTED, etc.
 ```
+
+---
+
+## Development status
+
+- Version: `0.2.0`
+- Default branch: `main`
+- Local tests: 41 passing
+- Hosted tests: 4 passing
+- CI: `.github/workflows/ci.yml` runs both Windows and Ubuntu jobs on every push.
 
 ---
 
 ## License
 
-MIT. See [LICENSE](LICENSE).
+MIT. See [`LICENSE`](LICENSE).
