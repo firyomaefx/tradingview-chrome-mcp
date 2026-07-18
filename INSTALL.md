@@ -1,53 +1,178 @@
-# Install (Windows)
+# Install
 
-## One-line standalone installer (no source build)
+This project can be installed as a **standalone Windows application** (one-line installer), from source for development, or as a **Vercel-hosted SSE server**. Pick the path that matches your use case.
+
+---
+
+## Option A: one-line standalone installer (recommended for Windows)
+
+Open PowerShell and run:
 
 ```powershell
 irm https://raw.githubusercontent.com/firyomaefx/tradingview-chrome-mcp/main/scripts/install-cli.ps1 | iex
 ```
 
-This downloads the latest `tradingview-chrome-mcp-windows.zip` release asset, installs to `%LOCALAPPDATA%\tradingview-chrome-mcp`, creates a Start-menu shortcut, and registers with Codex. Requires Node.js but no `npm install`/`npm run build`.
+What it does:
 
-> The one-liner only works after a release exists. Releases are created automatically by the [GitHub Actions `release.yml`](.github/workflows/release.yml) workflow when a `v*.*.*` tag is pushed.
+1. Downloads the latest `tradingview-chrome-mcp-windows.zip` release asset.
+2. Extracts it to `%LOCALAPPDATA%\tradingview-chrome-mcp`.
+3. Runs `npm install --production` in that directory.
+4. Creates a Start-menu shortcut named **"TradingView MCP"**.
+5. Registers the server with Codex (`codex mcp add`).
+6. Creates a desktop shortcut on first run.
 
-After install, double-click **`Launch-TV-MCP.cmd`** in `%LOCALAPPDATA%\tradingview-chrome-mcp` for single-click launch. The first run creates a desktop shortcut; subsequent runs can be started from the desktop icon.
+Requirements:
 
-## Quick (from source)
+- Node.js >= 20.10
+- Windows 10/11
+
+No `git clone`, no `npm run build`, no manual Codex configuration.
+
+### Launch the standalone app
+
+After install, either:
+
+- Double-click the **"TradingView MCP"** desktop shortcut.
+- Click the **TradingView MCP** Start-menu entry.
+- Run: `pwsh "$env:LOCALAPPDATA\tradingview-chrome-mcp\scripts\Launch-TV-MCP.ps1"`
+
+The launcher handles everything: Chrome debug-port detection, server startup, dashboard opening, and shortcut creation.
+
+### Upgrade the standalone app
+
+Re-run the one-liner. It will download the latest release and overwrite the install directory, preserving your local `logs/` and `screenshots/` folders.
+
 ```powershell
-git clone https://github.com/firyomaefx/tradingview-chrome-mcp.git; cd tradingview-chrome-mcp
+irm https://raw.githubusercontent.com/firyomaefx/tradingview-chrome-mcp/main/scripts/install-cli.ps1 | iex
+```
+
+---
+
+## Option B: install from source
+
+For developers, contributors, or non-Windows platforms.
+
+```powershell
+git clone https://github.com/firyomaefx/tradingview-chrome-mcp.git
+cd tradingview-chrome-mcp
 npm install
 npm run build
 pwsh scripts/register-codex.ps1
-pwsh scripts/start-chrome.ps1   # start Chrome with remote debugging, then log in to TradingView
-pwsh scripts/run.ps1            # run the server + dashboard; open http://127.0.0.1:3939
 ```
 
-## Packaged install from source (Phase 5)
+### Launch from source
+
 ```powershell
-pwsh scripts/install.ps1          # builds, copies to %LOCALAPPDATA%, Start-menu shortcut, health check, registers Codex, auto-reconnect launcher
-pwsh scripts/uninstall.ps1         # removes shortcut, install dir, Codex registration (source untouched)
+# Double-click this file in the repo root:
+# Launch-TV-MCP.cmd
+
+# Or from PowerShell:
+pwsh scripts/Launch-TV-MCP.ps1 -CreateShortcut
 ```
 
-The install launcher (`run.cmd`) auto-restarts the server 3s after a crash, so a transient Chrome disconnect self-heals.
+The first run creates a desktop shortcut so subsequent launches are one-click.
 
-## One-click source launcher
-If you cloned the repo, double-click **`Launch-TV-MCP.cmd`** in the project root. The first run creates a desktop shortcut; subsequent runs are a single double-click from the desktop.
+### Manual Codex registration
 
-Set `TV_ALLOW_CHROME_KILL=1` to let the launcher close conflicting Chrome instances, and `TV_DEFAULT_TRADINGVIEW_URL` to land directly on your preferred chart (e.g. `https://www.tradingview.com/chart/?symbol=OANDA%3AXAUUSD`).
+If you prefer not to run `register-codex.ps1`, add this to `C:\Users\%USERNAME%\.codex\config.toml`:
 
-> **Warning:** `TV_ALLOW_CHROME_KILL=1` will force-close all Chrome windows and asks for explicit confirmation before doing so, to prevent accidental data loss.
+```toml
+[mcp_servers.tradingview-chrome-mcp]
+command = "node"
+args = ["C:\\Users\\%USERNAME%\\Documents\\Tradingview\\dist\\server\\index.js"]
+env = { TV_DASHBOARD_PORT = "3939", TV_LOG_LEVEL = "info", TV_APPROVAL_TIMEOUT_MS = "120000" }
+startup_timeout_sec = 30
+```
 
-## Streamable HTTP transport (optional)
-Set `TV_MCP_HTTP_PORT=3940` (or `TV_ENABLE_HTTP_MCP=1`) to expose the MCP server over Streamable HTTP on `127.0.0.1:3940` alongside STDIO. Useful for HTTP clients or future web dashboards.
+Or via the CLI:
 
-## Chrome extension (optional)
+```powershell
+codex mcp add tradingview-chrome-mcp node "C:\Users\%USERNAME%\Documents\Tradingview\dist\server\index.js"
+```
+
+---
+
+## Option C: Vercel-hosted SSE server
+
+Deploy a serverless, SSE-based MCP endpoint with privacy-first telemetry. This fork does **not** control Chrome; it serves market-data tools via a pluggable backend.
+
+See [HOSTED.md](HOSTED.md) for full deployment instructions and environment variables.
+
+```bash
+cd vercel-hosted
+npm install
+cp .env.local.example .env.local
+# edit .env.local with your Supabase/Redis/Vercel values
+vercel --prod
+```
+
+---
+
+## Launcher configuration
+
+The one-click launcher (`Launch-TV-MCP.cmd` / `scripts/Launch-TV-MCP.ps1`) respects these environment variables:
+
+| Variable | Default | Purpose |
+|---|---|---|
+| `TV_DEFAULT_TRADINGVIEW_URL` | `https://www.tradingview.com/chart/` | Landing URL when no chart tab is found. |
+| `TV_ALLOW_CHROME_LAUNCH` | `0` | Allow the launcher to start Chrome if no debug port is detected. |
+| `TV_ALLOW_CHROME_KILL` | `0` | Allow the launcher to close conflicting Chrome windows. Requires typed confirmation. |
+| `TV_DASHBOARD_PORT` | `3939` | Local dashboard port. |
+| `TV_MCP_HTTP_PORT` | `3940` | Optional Streamable HTTP MCP port. Set to `0` to disable. |
+| `TV_HTTP_BIND` | `127.0.0.1` | Set to `0.0.0.0` to allow LAN access to the HTTP transport. |
+| `TV_APPROVAL_TIMEOUT_MS` | `120000` | Dashboard approval timeout in milliseconds. |
+| `TV_LOG_LEVEL` | `info` | Runtime log level. |
+| `TV_AUTO_APPROVE_DESTRUCTIVE` | `0` | Set to `1` to auto-approve destructive tools. **Not recommended.** |
+
+Example custom landing symbol:
+
+```powershell
+$env:TV_DEFAULT_TRADINGVIEW_URL = "https://www.tradingview.com/chart/?symbol=OANDA%3AXAUUSD"
+pwsh "$env:LOCALAPPDATA\tradingview-chrome-mcp\scripts\Launch-TV-MCP.ps1"
+```
+
+---
+
+## Optional Streamable HTTP transport
+
+Set `TV_MCP_HTTP_PORT=3940` (or `TV_ENABLE_HTTP_MCP=1`) to expose the MCP server over Streamable HTTP on `127.0.0.1:3940` alongside STDIO. Useful for HTTP clients or local web dashboards.
+
+```powershell
+$env:TV_MCP_HTTP_PORT = "3940"
+pwsh scripts/Launch-TV-MCP.ps1
+```
+
+---
+
+## Optional Chrome extension
+
 1. Open `chrome://extensions`.
 2. Enable Developer mode.
-3. Load unpacked -> select `extension/`.
-4. The toolbar icon shows server status and the active TradingView tab; click it for a popup with symbol/timeframe.
+3. Load unpacked -> select the `extension/` folder.
+4. The toolbar icon shows server status and the active TradingView tab.
+
+---
 
 ## Health check
+
+After launch, verify everything is connected:
+
 ```powershell
-& "$env:LOCALAPPDATA\tradingview-chrome-mcp\health.cmd"
+# Standalone install:
+& "$env:LOCALAPPDATA\tradingview-chrome-mcp\scripts\health.cmd"
+
+# From source:
+node dist/dashboard/health.js
 ```
-Prints `connected: <bool>`, tab count, emergency-stop state. Exit 0 if the dashboard is up and Chrome is attached.
+
+Expected output includes `connected: true`, tab count, and emergency-stop state.
+
+---
+
+## Troubleshooting
+
+- **"No TradingView tab available"**: open `https://www.tradingview.com/chart/` in Chrome and re-run the launcher.
+- **"EADDRINUSE"**: another process is using port `3939` or `3940`. Change `TV_DASHBOARD_PORT` or `TV_MCP_HTTP_PORT`.
+- **Approvals not appearing**: ensure the dashboard opened at `http://127.0.0.1:3939`.
+
+See [TROUBLESHOOTING.md](TROUBLESHOOTING.md) for more.
