@@ -42,6 +42,7 @@
 4. **Browser controller (`src/browser`)** - Attaches to Chrome over CDP using Playwright `connectOverCDP`. Lists tabs, finds TradingView tabs, caches the active one. Auto-launch of the user Chrome is opt-in (`TV_ALLOW_CHROME_LAUNCH=1`) to avoid silently reusing a profile that is already running.
 5. **TradingView adapter (`src/adapters/tradingview`)** - All DOM-level logic. Each reader uses multiple selector strategies with fallbacks (header buttons, aria-labels, Monaco API) and falls back to URL parsing for symbol/timeframe. Writers (Pine source, save, add-to-chart) prefer the Monaco model API and keyboard input as a fallback.
 6. **Dashboard (`src/dashboard`)** - Express on `127.0.0.1` only. Polls status every 3s. Exposes `/api/status`, `/api/pending`, `/api/pending/:id/approve|deny`, `/api/history`, `/api/screenshots`, `/api/screenshot`, `/api/emergency_stop`, `/api/emergency_clear`.
+7. **Launcher (`Launch-TV-MCP.cmd` / `scripts/Launch-TV-MCP.ps1`)** - Windows one-click launcher. Detects/starts Chrome with `--remote-debugging-port=9222`, starts the MCP server in the background, opens the dashboard, and creates a desktop shortcut.
 7. **Logging (`src/logging`)** - `pino` for runtime logs; append-only JSONL `logs/audit.jsonl` for the audit trail. All inputs are run through `redact()` to strip credentials before logging.
 
 ## Key invariants

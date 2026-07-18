@@ -5,8 +5,9 @@ You are an agent driving continued development of `tradingview-chrome-mcp`, a st
 ## Project facts
 - Location: `C:\Users\Pedot\Documents\Tradingview\tradingview-chrome-mcp`.
 - Build: `npm run build`. Typecheck: `npm run typecheck`. Tests: `npm test` (node:test + linkedom). Run server: `node dist/server/index.js` or `pwsh scripts/run.ps1`. Start Chrome with debugging: `pwsh scripts/start-chrome.ps1`.
-- Layout: `src/server` (MCP STDIO), `src/tools/registry.ts` (tools), `src/browser/controller.ts` (Playwright over CDP), `src/adapters/tradingview/adapter.ts` (DOM), `src/permissions` (policy + approvals), `src/validation/schemas.ts` (zod), `src/dashboard/server.ts` (Express on 127.0.0.1).
-- 28 MCP tools live. Read path + destructive path (change_symbol/timeframe, Pine create/compile/save/add_to_chart) are verified against a real TradingView session.
+- Layout: `src/server` (MCP STDIO + optional HTTP), `src/tools/registry.ts` (tools), `src/browser/controller.ts` (Playwright over CDP), `src/adapters/tradingview/adapter.ts` (DOM), `src/permissions` (policy + approvals), `src/validation/schemas.ts` (zod), `src/dashboard/server.ts` (Express on 127.0.0.1).
+- One-click launcher: `Launch-TV-MCP.cmd` → `scripts/Launch-TV-MCP.ps1`.
+- 31 MCP tools live. Read path + destructive path are implemented; some paths unit-tested and not all live-verified.
 - Codex registration lives in `C:\Users\Pedot\.codex\config.toml` under `[mcp_servers.tradingview-chrome-mcp]`. Do not touch unrelated config.
 
 ## Safety invariants (never break)
@@ -42,10 +43,10 @@ A task is done only when: typecheck passes, `npm test` passes, the affected tool
 - Capture `tv_screenshot` before and after every destructive step as evidence.
 
 ## Current next priorities (one per loop)
-1. Live-verify Phase 4 tools individually: alerts create/delete, watchlist add/sync, chart-data export, drawings.
-2. Live-verify `tv_rename_script` end-to-end against a real saved Pine script.
-3. Find/create a TradingView "New layout" entry point so a throwaway test layout can be auto-created.
-4. Build a GitHub Actions release pipeline that produces a Windows zip with `dist/` + `node_modules/` for `install-cli.ps1`.
-5. Package dashboard + server as a single Windows tray app.
+1. Live-test `Launch-TV-MCP.cmd` end-to-end on a fresh Windows machine with and without Chrome already running.
+2. Live-verify Phase 4 tools individually: alerts create/delete, watchlist add/sync, chart-data export, drawings.
+3. Live-verify `tv_rename_script` end-to-end against a real saved Pine script.
+4. Find/create a TradingView "New layout" entry point so a throwaway test layout can be auto-created.
+5. Build a Windows tray app / compiled executable (e.g. `pkg`) as the next packaging step.
 
 Start every turn by Observe-ing the current state of the file or tool you've been asked to work on.

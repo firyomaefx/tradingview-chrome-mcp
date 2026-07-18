@@ -18,29 +18,29 @@ The server speaks the Model Context Protocol over **STDIO** (default) and option
 - Google Chrome (or any Chromium with `--remote-debugging-port` support)
 - A TradingView account and at least one open chart tab
 
-## Quick start
+## One-click launch (Windows)
 
-1. Close all Chrome windows, then start Chrome with remote debugging on your real profile:
+After installing from source or via the release installer, double-click **`Launch-TV-MCP.cmd`** in the project root. It will:
 
-   ```powershell
-   & "$env:LocalAppData\Google\Chrome\Application\chrome.exe" `
-     --remote-debugging-port=9222 `
-     --user-data-dir="$env:LocalAppData\Google\Chrome\User Data" `
-     --remote-allow-origins=* --no-first-run --no-default-browser-check
-   ```
+1. Detect whether Chrome already has the debug port open.
+2. If not, launch Chrome with `--remote-debugging-port=9222` on your real profile.
+3. Start the MCP server + dashboard in the background.
+4. Open the dashboard in your browser.
+5. Create a desktop shortcut on first run for future true single-click launches.
 
-   Log in to TradingView and open a chart. (You can also let the server launch Chrome for you by setting `TV_ALLOW_CHROME_LAUNCH=1` and `TV_CHROME_PATH`; make sure Chrome is closed first, otherwise the existing process ignores the debug flag.)
+```powershell
+# Or run from PowerShell directly:
+pwsh scripts/Launch-TV-MCP.ps1 -CreateShortcut
+```
 
-2. Install and build:
+Set `TV_ALLOW_CHROME_KILL=1` before running to let the launcher gracefully close any existing Chrome instances that do not have the debug port open. Without it, the launcher exits with instructions so it never destroys user work silently.
 
-   ```powershell
-   npm install
-   npm run build
-   ```
+Configure the landing URL:
 
-3. Register with Codex (see [Install guide](#install-guide-for-codex) below).
-
-4. Verify the dashboard: open `http://127.0.0.1:3939` while the server is running.
+```powershell
+$env:TV_DEFAULT_TRADINGVIEW_URL = "https://www.tradingview.com/chart/?symbol=OANDA%3AXAUUSD"
+pwsh scripts/Launch-TV-MCP.ps1
+```
 
 ## Install guide for Codex
 
@@ -97,10 +97,12 @@ The configuration works with the Codex App, Codex CLI, and the Codex IDE extensi
 | `TV_AUTO_APPROVE_DESTRUCTIVE` | unset | If `1`, skip dashboard approval (development only). |
 | `TV_MCP_HTTP_PORT` | unset | If set, enable Streamable HTTP MCP transport on this port (default 3940). |
 | `TV_ENABLE_HTTP_MCP` | unset | If `1`, enable Streamable HTTP MCP transport (uses TV_MCP_HTTP_PORT). |
+| `TV_DEFAULT_TRADINGVIEW_URL` | `https://www.tradingview.com/chart/` | URL to open when auto-launching Chrome. |
+| `TV_ALLOW_CHROME_KILL` | unset | If `1`, the launcher may close existing Chrome instances to enable the debug port. |
 
 ## Safety model
 
-See [SECURITY.md](SECURITY.md). The short version: read tools never touch TradingView state; destructive tools (`tv_pine_save`, `tv_pine_add_to_chart`, `tv_change_symbol`, `tv_change_timeframe`, `tv_rename_script`, `tv_watchlist_sync`) require a dashboard approval, are audit-logged, and are blocked if the emergency stop is armed.
+See [SECURITY.md](SECURITY.md). The short version: read tools never touch TradingView state; destructive tools (`tv_pine_save`, `tv_pine_add_to_chart`, `tv_change_symbol`, `tv_change_timeframe`, `tv_rename_script`, `tv_watchlist_sync`) require a dashboard approval, are audit-logged, and are blocked if the emergency stop is armed. The launcher reuses your existing Chrome profile; it does not store, extract, or inject cookies, passwords, or tokens.
 
 ## Tools
 

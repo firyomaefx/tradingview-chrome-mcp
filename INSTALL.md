@@ -10,6 +10,8 @@ This downloads the latest `tradingview-chrome-mcp-windows.zip` release asset, in
 
 > The one-liner only works after a release exists. Releases are created automatically by the [GitHub Actions `release.yml`](.github/workflows/release.yml) workflow when a `v*.*.*` tag is pushed.
 
+After install, double-click **`Launch-TV-MCP.cmd`** in `%LOCALAPPDATA%\tradingview-chrome-mcp` for single-click launch.
+
 ## Quick (from source)
 ```powershell
 git clone https://github.com/firyomaefx/tradingview-chrome-mcp.git; cd tradingview-chrome-mcp
@@ -27,6 +29,11 @@ pwsh scripts/uninstall.ps1         # removes shortcut, install dir, Codex regist
 ```
 
 The install launcher (`run.cmd`) auto-restarts the server 3s after a crash, so a transient Chrome disconnect self-heals.
+
+## One-click source launcher
+If you cloned the repo, double-click **`Launch-TV-MCP.cmd`** in the project root. The first run creates a desktop shortcut; subsequent runs are a single double-click from the desktop.
+
+Set `TV_ALLOW_CHROME_KILL=1` to let the launcher close conflicting Chrome instances, and `TV_DEFAULT_TRADINGVIEW_URL` to land directly on your preferred chart (e.g. `https://www.tradingview.com/chart/?symbol=OANDA%3AXAUUSD`).
 
 ## Streamable HTTP transport (optional)
 Set `TV_MCP_HTTP_PORT=3940` (or `TV_ENABLE_HTTP_MCP=1`) to expose the MCP server over Streamable HTTP on `127.0.0.1:3940` alongside STDIO. Useful for HTTP clients or future web dashboards.
