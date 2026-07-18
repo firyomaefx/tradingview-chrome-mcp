@@ -1,0 +1,19 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><style>
+  body{font:13px/1.4 system-ui,sans-serif;margin:0;padding:12px;width:280px;background:#0f1115;color:#e6e9ef}
+  h1{font-size:13px;margin:0 0 8px;text-transform:uppercase;letter-spacing:.04em;color:#9aa3b2}
+  .row{display:flex;justify-content:space-between;padding:3px 0}
+  .pill{font-size:11px;padding:2px 7px;border-radius:999px;background:#1f2430;border:1px solid #2c3140}
+  .pill.on{color:#7ee787}.pill.off{color:#ff7b72}.pill.stop{color:#f2cc60}
+  a{color:#79c0ff}
+</style></head><body>
+<h1>TradingView Chrome MCP</h1>
+<div class="row"><span>Server</span><span id="srv" class="pill">...</span></div>
+<div class="row"><span>Emergency stop</span><span id="es" class="pill">...</span></div>
+<div class="row"><span>Tabs</span><span id="tabs">-</span></div>
+<div class="row"><span>Active symbol</span><span id="sym">-</span></div>
+<div class="row"><span>Timeframe</span><span id="tf">-</span></div>
+<div class="row" id="tvlist" style="flex-direction:column;align-items:flex-start;gap:4px;margin-top:8px"></div>
+<p style="margin-top:10px"><a href="http://127.0.0.1:3939" target="_blank">Open dashboard ↗</a></p>
+<script src="popup.js"></script>
+</body></html>

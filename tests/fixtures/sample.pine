@@ -1,0 +1,15 @@
+// Sample Pine Script v6 indicator for the MCP workflow.
+//@version=6
+indicator("FCPO Test SMA", overlay = true)
+
+fast = ta.sma(close, 9)
+slow = ta.sma(close, 21)
+
+plot(fast, "Fast SMA", color = color.teal)
+plot(slow, "Slow SMA", color = color.orange)
+
+bull = ta.crossover(fast, slow)
+bear = ta.crossunder(fast, slow)
+
+plotshape(bull, "Buy", shape.triangleup,   location.belowbar, color.green, size = size.small)
+plotshape(bear, "Sell", shape.triangledown, location.abovebar, color.red,   size = size.small)

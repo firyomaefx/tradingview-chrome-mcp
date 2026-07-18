@@ -1,0 +1,17 @@
+{
+  "manifest_version": 3,
+  "name": "TradingView Chrome MCP Connector",
+  "version": "0.1.0",
+  "description": "Flags the active TradingView tab and shows connection status for the local tradingview-chrome-mcp server. No trading logic.",
+  "permissions": ["tabs", "storage", "alarms"],
+  "host_permissions": ["http://127.0.0.1:3939/*", "https://www.tradingview.com/*"],
+  "background": { "service_worker": "background.js" },
+  "action": { "default_popup": "popup.html", "default_title": "TradingView MCP" },
+  "content_scripts": [
+    {
+      "matches": ["https://www.tradingview.com/*"],
+      "js": ["content.js"],
+      "run_at": "document_idle"
+    }
+  ]
+}

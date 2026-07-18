@@ -1,0 +1,16 @@
+node_modules/
+dist/
+logs/
+logs/*.log
+logs/*.log.*
+screenshots/*.png
+screenshots/*.jpg
+exports/*.csv
+.env
+.env.local
+*.pem
+*.key
+backups/
+.cache/
+.codex/
+tsconfig.tsbuildinfo

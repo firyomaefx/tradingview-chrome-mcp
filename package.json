@@ -1,0 +1,39 @@
+{
+  "name": "tradingview-chrome-mcp",
+  "version": "0.1.0",
+  "description": "Local MCP server that lets Codex safely control Chrome for TradingView activities (read chart, edit Pine Script v6, manage alerts, export data).",
+  "type": "module",
+  "private": true,
+  "engines": {
+    "node": ">=20.10"
+  },
+  "bin": {
+    "tradingview-chrome-mcp": "dist/server/index.js"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "dev": "tsx watch src/server/index.ts",
+    "start": "node dist/server/index.js",
+    "dashboard": "node dist/dashboard/index.js",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "node --test --import tsx tests/unit/*.test.ts",
+    "test:integration": "node --test --import tsx tests/integration/*.test.ts",
+    "lint": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.0.4",
+    "chrome-remote-interface": "^0.33.2",
+    "express": "^4.19.2",
+    "pino": "^9.4.0",
+    "pino-pretty": "^11.2.2",
+    "playwright": "^1.48.0",
+    "zod": "^3.23.8"
+  },
+  "devDependencies": {
+    "@types/express": "^4.17.21",
+    "@types/node": "^22.5.0",
+    "linkedom": "^0.18.13",
+    "tsx": "^4.19.0",
+    "typescript": "^5.6.2"
+  }
+}
