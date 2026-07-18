@@ -1,81 +1,266 @@
-# TradingView MCP — Vercel-Hosted Fork
+# TradingView Chrome MCP — Cloud-Hosted Edition
 
-This directory contains a **standalone, serverless, SSE-based MCP server** designed to run on Vercel. It is a fork of `tradingview-chrome-mcp` that replaces the local Playwright/Chrome backend with a pluggable market-data API backend.
+[![CI](https://github.com/firyomaefx/tradingview-chrome-mcp/actions/workflows/ci.yml/badge.svg)](https://github.com/firyomaefx/tradingview-chrome-mcp/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://github.com/firyomaefx/tradingview-chrome-mcp/blob/main/LICENSE)
 
-For full architecture, schema, and security details, see the main project's [HOSTED.md](../HOSTED.md).
+A **serverless, cloud-hosted MCP server** that exposes TradingView-compatible market-data tools to any LLM or agent over **Server-Sent Events (SSE)**. Runs on **Vercel**, authenticates with API keys, and logs only allow-listed parameters to **Supabase** for cache observability.
 
----
-
-## What this standalone hosted app does
-
-- Exposes an MCP server over **Server-Sent Events** at `/api/sse`.
-- Accepts JSON-RPC tool messages at `/api/messages`.
-- Authenticates clients via API key query parameter (`?key=...`).
-- Logs only allow-listed parameters (`symbol`, `ticker`, `timeframe`) to Supabase for cache/rate-limit observability.
-- Serves market-data tools through a `mock` or `market-data-api` backend.
-
-**Important**: this hosted app does **not** control Chrome or automate TradingView. Browser-only tools return a clear "unavailable in hosted mode" response.
+> **Not a browser automator.** This cloud edition does **not** control Chrome or automate the TradingView UI. Browser-only features (Pine editor, screenshots, alerts, drawings) return a clear "unavailable in hosted mode" response. Use the [local edition](https://github.com/firyomaefx/tradingview-chrome-mcp) for Chrome automation.
 
 ---
 
-## Quick start
+## What it does
 
-### 1. Prepare Supabase
+- Exposes an MCP server at `/api/sse` using **Server-Sent Events**.
+- Receives JSON-RPC tool calls at `/api/messages`.
+- Returns market-data tool results for symbols, timeframes, chart metadata, watchlists, and more.
+- Authenticates clients via a single `?key=` query parameter.
+- Persists only `symbol`, `ticker`, and `timeframe` to Supabase for cache/rate-limit analytics.
+- Supports two data backends: deterministic `mock` (default) and a pluggable `market-data-api`.
 
-Create a Supabase project and run the migration:
+---
 
-```bash
-psql $DATABASE_URL -f supabase/migrations/001_initial.sql
+## Cloud architecture
+
+```
+┌─────────────────┐      GET /api/sse?key=...        ┌──────────────────────┐
+│   MCP client    │  ───────────────────────────▶   │   Vercel (Next.js)   │
+│ (Claude/Codex/  │◀──── SSE endpoint event          │   /api/sse           │
+│   Grok/any LLM) │                                  │   per-client server  │
+└─────────────────┘                                  └──────────┬───────────┘
+       │                                                        │
+       │ POST /api/messages?sessionId=...                       │
+       │───────────────────────────────────────────────────────▶│
+       │                                                        │
+       │◀──── SSE event: tool result                             │
+       │                                               ┌────────▼──────────┐
+       │                                               │  Upstash Redis    │
+       │                                               │  session store    │
+       │                                               └────────┬──────────┘
+       │                                               ┌────────▼──────────┐
+       │                                               │  Supabase           │
+       │                                               │  • usage telemetry    │
+       │                                               │  • API-key registry   │
+       │                                               │  • feature flags      │
+       │                                               └─────────────────────┘
 ```
 
-### 2. Configure environment variables
+---
+
+## LLM & agent compatibility
+
+**This server works with any LLM or agent that supports the Model Context Protocol (MCP) over SSE.**
+
+Best-in-class experience with:
+
+- **Anthropic Codex / Claude Code** — connect via the SSE URL or the `mcp-remote` STDIO proxy.
+- **Claude Desktop** — paste the JSON config below.
+- **xAI Grok** — compatible via any MCP client that supports SSE endpoints.
+- Any other MCP client that can read `tools/list` and call `tools/call` over an SSE transport.
+
+---
+
+## Quickstart deployment
+
+### 1. Prerequisites
+
+- A Vercel account
+- A Supabase project
+- An Upstash Redis database (free tier is enough)
+- Node.js `>= 20.10`
+
+### 2. Clone and enter the cloud edition
+
+```bash
+git clone https://github.com/firyomaefx/tradingview-chrome-mcp.git
+cd tradingview-chrome-mcp/vercel-hosted
+npm install
+```
+
+### 3. Create the Supabase schema
+
+In the Supabase SQL Editor (or via `psql`), run:
+
+```sql
+-- Usage telemetry. Only allow-listed parameters are stored.
+create table if not exists mcp_usage_logs (
+  id bigint generated by default as identity primary key,
+  user_id text not null,
+  tool_name text not null,
+  parameters jsonb,
+  duration_ms integer not null,
+  success boolean not null,
+  error_message text,
+  created_at timestamp with time zone default now()
+);
+
+create index if not exists idx_mcp_usage_logs_user_id on mcp_usage_logs(user_id);
+create index if not exists idx_mcp_usage_logs_created_at on mcp_usage_logs(created_at desc);
+
+-- Cache-key rollup for edge-cache observability.
+alter table mcp_usage_logs
+add column if not exists cache_key text generated always as (
+  lower(tool_name) || ':' ||
+  coalesce((parameters->>'symbol'), (parameters->>'ticker'), 'unknown') || ':' ||
+  coalesce(parameters->>'timeframe', 'unknown')
+) stored;
+
+create index if not exists idx_mcp_usage_logs_cache_key on mcp_usage_logs(cache_key);
+
+-- API keys. Only SHA-256 hashes are stored; plaintext keys are never persisted.
+create table if not exists mcp_api_keys (
+  id uuid primary key default gen_random_uuid(),
+  key_hash text not null unique,
+  label text,
+  rate_limit_per_minute integer default 60,
+  allowed_tools text[] default null,
+  is_active boolean default true,
+  created_at timestamp with time zone default now()
+);
+
+create index if not exists idx_mcp_api_keys_key_hash on mcp_api_keys(key_hash);
+
+-- Runtime feature flags.
+create table if not exists mcp_feature_flags (
+  key text primary key,
+  value boolean not null,
+  updated_at timestamp with time zone default now()
+);
+
+insert into mcp_feature_flags (key, value) values
+  ('disable_telemetry', false),
+  ('read_only_mode', false),
+  ('disable_destructive_tools', false)
+on conflict (key) do nothing;
+```
+
+### 4. Configure environment variables
 
 ```bash
 cp .env.local.example .env.local
 ```
 
-Fill in at minimum:
+Edit `.env.local`:
+
+| Variable | Required | Purpose |
+|---|---|---|
+| `SUPABASE_URL` | Yes | Your Supabase project URL. |
+| `SUPABASE_SERVICE_ROLE_KEY` | Yes | Service-role key (server-side only). |
+| `TELEMETRY_ENABLED` | Yes | Set to `1` to enable usage logging. Use `0` to disable. |
+| `TELEMETRY_ALLOWED_KEYS` | Yes | Comma-separated allow-list. Default: `symbol,ticker,timeframe`. |
+| `MCP_API_KEYS` | Yes | Comma-separated static API keys for quick auth. |
+| `UPSTASH_REDIS_REST_URL` | Yes | Upstash Redis REST URL. |
+| `UPSTASH_REDIS_REST_TOKEN` | Yes | Upstash Redis REST token. |
+| `TOOL_BACKEND` | Yes | `mock` for testing, `market-data-api` for production. |
+| `TV_AUTO_APPROVE_DESTRUCTIVE` | Yes | Must be `1` in hosted mode (no interactive dashboard). |
+| `TV_LOG_LEVEL` | No | `trace`, `debug`, `info`, `warn`, or `error`. Default `info`. |
+
+### 5. Deploy to Vercel
 
 ```bash
-SUPABASE_URL=https://your-project.supabase.co
-SUPABASE_SERVICE_ROLE_KEY=your-service-role-key
-TELEMETRY_ENABLED=1
-MCP_API_KEYS=your-first-api-key
-UPSTASH_REDIS_REST_URL=https://your-redis.upstash.io
-UPSTASH_REDIS_REST_TOKEN=your-redis-token
-TOOL_BACKEND=mock
-```
-
-### 3. Deploy
-
-```bash
-npm install
 vercel --prod
 ```
 
-### 4. Connect a client
+Your hosted MCP server is now live at:
 
-```bash
-curl -N "https://your-app.vercel.app/api/sse?key=your-first-api-key"
+```
+https://your-project.vercel.app/api/sse?key=YOUR_API_KEY
 ```
 
-The SSE stream returns an `endpoint` event. POST JSON-RPC messages to that URL.
+---
+
+## Simple usage guide
+
+### Option A: direct SSE URL (any MCP client)
+
+Point your MCP client to:
+
+```text
+https://your-project.vercel.app/api/sse?key=YOUR_API_KEY
+```
+
+The server sends an `endpoint` event with the POST URL for JSON-RPC messages. Most SSE-aware clients connect automatically.
+
+### Option B: Claude Desktop (copy-paste config)
+
+Open Claude Desktop, go to **Settings → Developer → Edit Config**, and paste this JSON block:
+
+```json
+{
+  "mcpServers": {
+    "tradingview-cloud": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "@anthropic-ai/mcp-remote",
+        "https://your-project.vercel.app/api/sse?key=YOUR_API_KEY"
+      ]
+    }
+  }
+}
+```
+
+Restart Claude Desktop. Ask:
+
+- "What is the current chart symbol?"
+- "Switch to NASDAQ:AAPL on the 15-minute timeframe."
+- "Get chart metadata."
+
+### Option C: quick manual test with curl
+
+```bash
+curl -N "https://your-project.vercel.app/api/sse?key=YOUR_API_KEY"
+```
+
+Then POST a tool call to the `endpoint` URL returned by the SSE stream.
 
 ---
 
-## Differences from the local project
+## Privacy and security
 
-| Concern | Local project | Hosted fork |
-|---|---|---|
-| Transport | STDIO + optional local HTTP | Server-Sent Events over Vercel |
-| Browser control | Playwright + Chrome CDP | Not available |
-| Data source | TradingView DOM | Mock or market-data API |
-| Approval flow | Local dashboard | Auto-approve / external auth |
-| Telemetry | None by default | Privacy-first allow-list to Supabase |
-| Sessions | In-memory | Redis-backed |
+- **Only allow-listed parameters are logged.** By default that is `symbol`, `ticker`, and `timeframe`.
+- **Pine source, indicator configs, strategy parameters, and account identifiers are never logged.**
+- API keys can be validated from `MCP_API_KEYS` or from the `mcp_api_keys` Supabase table, which stores only SHA-256 hashes.
+- The Supabase service-role key is used server-side only and is never exposed to clients.
+- Set `TELEMETRY_ENABLED=0` to disable all Supabase logging.
 
 ---
 
-## Privacy model
+## Available market-data tools
 
-Only `symbol`, `ticker`, and `timeframe` parameters are persisted by default. Pine source, indicator configs, strategy parameters, screenshots, and account identifiers are **never** logged. Configure the allow-list via `TELEMETRY_ALLOWED_KEYS`.
+| Tool | Purpose |
+|---|---|
+| `ping` | Server health and backend mode. |
+| `tv_status` / `tv_read_chart` | Active symbol, timeframe, and backend state. |
+| `tv_change_symbol` | Set the active symbol. |
+| `tv_change_timeframe` | Set the active timeframe. |
+| `tv_chart_metadata` | Symbol, timeframe, and latest quote from the backend. |
+| `tv_watchlist_read` | Mock watchlist of active/recent symbols. |
+| `tv_watchlist_sync` | Ensure a symbol is tracked. |
+| `emergency_stop` / `emergency_clear` | Halt or resume tool execution. |
+
+Browser-only tools (`tv_screenshot`, `tv_pine_*`, `tv_alert_*`, `tv_drawing_*`, etc.) return "unavailable in hosted mode". Use the local edition for those features.
+
+---
+
+## Switching from mock to a real market-data provider
+
+1. Set `TOOL_BACKEND=market-data-api` in your Vercel environment variables.
+2. Edit `lib/tools/registry.ts` and replace the `marketDataProvider` placeholder with calls to your licensed provider (Polygon, Yahoo Finance, Twelve Data, etc.).
+3. Redeploy.
+
+The tool schemas stay the same, so existing clients continue to work.
+
+---
+
+## Limitations
+
+- No browser automation. This is a cloud market-data endpoint only.
+- SSE sessions are stateful. In multi-region Pro deployments a POST may land on a different instance and return `409 Conflict`; the client must reconnect via `/api/sse`. Pin to a single Vercel region or use Redis-backed affinity for the most reliable experience.
+- Destructive tools auto-approve in hosted mode because there is no local dashboard. Add an external authorization layer before exposing destructive tools to untrusted clients.
+
+---
+
+## License
+
+MIT. See [LICENSE](../LICENSE).
