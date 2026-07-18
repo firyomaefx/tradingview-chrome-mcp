@@ -20,6 +20,11 @@ export interface ChartState {
   pineEditorReady: boolean;
   dialogs: string[];
   pageReady: boolean;
+  diagnostics: {
+    chromeReachable: boolean;
+    tradingViewTabFound: boolean;
+    pageDomReady: boolean;
+  };
 }
 
 export interface PineRead {
@@ -164,6 +169,11 @@ export async function readChartState(page: Page): Promise<ChartState> {
     pineEditorReady,
     dialogs,
     pageReady,
+    diagnostics: {
+      chromeReachable: true,
+      tradingViewTabFound: /https:\/\/(www\.)?tradingview\.com\//i.test(url),
+      pageDomReady: pageReady,
+    },
   };
 }
 

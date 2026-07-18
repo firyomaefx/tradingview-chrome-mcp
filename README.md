@@ -97,12 +97,13 @@ The configuration works with the Codex App, Codex CLI, and the Codex IDE extensi
 | `TV_AUTO_APPROVE_DESTRUCTIVE` | unset | If `1`, skip dashboard approval (development only). |
 | `TV_MCP_HTTP_PORT` | unset | If set, enable Streamable HTTP MCP transport on this port (default 3940). |
 | `TV_ENABLE_HTTP_MCP` | unset | If `1`, enable Streamable HTTP MCP transport (uses TV_MCP_HTTP_PORT). |
+| `TV_MCP_HTTP_BIND` | `127.0.0.1` | Bind address for Streamable HTTP transport. Set to `0.0.0.0` to allow LAN connections (firewall responsibility). |
 | `TV_DEFAULT_TRADINGVIEW_URL` | `https://www.tradingview.com/chart/` | URL to open when auto-launching Chrome. |
 | `TV_ALLOW_CHROME_KILL` | unset | If `1`, the launcher may close existing Chrome instances to enable the debug port. |
 
 ## Safety model
 
-See [SECURITY.md](SECURITY.md). The short version: read tools never touch TradingView state; destructive tools (`tv_pine_save`, `tv_pine_add_to_chart`, `tv_change_symbol`, `tv_change_timeframe`, `tv_rename_script`, `tv_watchlist_sync`) require a dashboard approval, are audit-logged, and are blocked if the emergency stop is armed. The launcher reuses your existing Chrome profile; it does not store, extract, or inject cookies, passwords, or tokens.
+See [SECURITY.md](SECURITY.md). The short version: read tools never touch TradingView state; destructive tools (`tv_pine_save`, `tv_pine_add_to_chart`, `tv_change_symbol`, `tv_change_timeframe`, `tv_rename_script`, `tv_watchlist_sync`) require a dashboard approval, are audit-logged, and are blocked if the emergency stop is armed. The launcher reuses your existing Chrome profile; it does not store, extract, or inject cookies, passwords, or tokens. HTTP transport is localhost-only by default and never logs requests to remote servers.
 
 ## Tools
 
@@ -118,6 +119,8 @@ See [TOOL_REFERENCE.md](TOOL_REFERENCE.md) for the full list and parameter schem
 | `npm run dashboard` | Run only the dashboard entrypoint. |
 | `npm test` | Unit tests (policy + schemas). |
 | `npm run typecheck` | Type-check only. |
+| `pwsh scripts/package-zip.ps1` | Build a redistributable Windows zip locally. |
+| `Launch-TV-MCP.cmd` | Double-click one-click Windows launcher. |
 
 ## Troubleshooting
 

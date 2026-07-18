@@ -21,15 +21,18 @@ export async function startHttpTransportIfEnabled(server: Server, port: number):
     return undefined;
   }
 
+  const bindHost = process.env.TV_MCP_HTTP_BIND ?? "127.0.0.1";
+  const isLocalhostOnly = bindHost === "127.0.0.1" || bindHost === "localhost";
+
   const transport = new StreamableHTTPServerTransport({
     sessionIdGenerator: () => randomUUID(),
   });
   await server.connect(transport);
 
   const httpServer = createServer(async (req: IncomingMessage, res: ServerResponse) => {
-    // CORS: restrict to localhost origins only.
+    // CORS: restrict to localhost origins when bound to localhost.
     const origin = req.headers.origin ?? "";
-    if (origin && !/^https?:\/\/127\.0\.0\.1(:\d+)?$|^https?:\/\/localhost(:\d+)?$/.test(origin)) {
+    if (isLocalhostOnly && origin && !/^https?:\/\/127\.0\.0\.1(:\d+)?$|^https?:\/\/localhost(:\d+)?$/.test(origin)) {
       res.writeHead(403).end("origin not allowed");
       return;
     }
@@ -64,8 +67,8 @@ export async function startHttpTransportIfEnabled(server: Server, port: number):
   });
 
   await new Promise<void>((resolve, reject) => {
-    httpServer.listen(port, "127.0.0.1", () => {
-      logger.info({ port }, "MCP HTTP transport listening");
+    httpServer.listen(port, bindHost, () => {
+      logger.info({ port, host: bindHost, localhostOnly: isLocalhostOnly }, "MCP HTTP transport listening");
       resolve();
     });
     httpServer.once("error", reject);

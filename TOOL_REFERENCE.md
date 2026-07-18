@@ -101,6 +101,9 @@ Adds the current chart symbol to the watchlist via the star button. Input `{ sym
 ### `tv_watchlist_sync` (destructive when adding)
 Reads the active watchlist and optionally adds the current/requested symbol if missing. Input `{ symbol?, addIfMissing? }`. If `addIfMissing` is true (default) and the symbol is missing, approval is required. Returns `{ synced, added, symbols }`.
 
+### `tv_ensure_chart` (non-destructive)
+Ensures a usable TradingView chart tab is reachable. If the active tab is not on `tradingview.com`, opens the Pine Editor and returns the resulting state. Useful after the launcher auto-opens Chrome.
+
 ### `tv_chart_data_export` (destructive)
 Triggers chart-data CSV export and saves the download to `./exports`. Approval-gated.
 

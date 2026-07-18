@@ -66,7 +66,16 @@ function Stop-ConflictingChrome {
     Write-Host "Close all Chrome windows and rerun, or set TV_ALLOW_CHROME_KILL=1 to allow this launcher to close Chrome automatically." -ForegroundColor Yellow
     return $false
   }
-  Write-Host "TV_ALLOW_CHROME_KILL=1 is set. Closing existing Chrome processes in 5 seconds..." -ForegroundColor Magenta
+  Write-Host ""
+  Write-Host "WARNING: TV_ALLOW_CHROME_KILL=1 is set." -ForegroundColor Red
+  Write-Host "This will FORCE CLOSE all Google Chrome processes, including any work you have open in other windows or profiles." -ForegroundColor Yellow
+  Write-Host "Unsaved work in Chrome (tabs, forms, downloads) may be lost." -ForegroundColor Yellow
+  $confirm = Read-Host "Type 'yes' to continue and close Chrome, or anything else to cancel"
+  if ($confirm -ne "yes") {
+    Write-Host "Cancelled by user. Close Chrome manually and rerun." -ForegroundColor Yellow
+    return $false
+  }
+  Write-Host "Closing existing Chrome processes in 5 seconds..." -ForegroundColor Magenta
   for ($i = 5; $i -gt 0; $i--) {
     Write-Host "  $i..."
     Start-Sleep -Seconds 1

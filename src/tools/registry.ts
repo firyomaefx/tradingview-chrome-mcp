@@ -169,7 +169,7 @@ const tools: ToolDef[] = [
   },
   {
     name: "tv_status",
-    description: "Read the current TradingView chart state: symbol, timeframe, login, Pine editor open, dialogs.",
+    description: "Read the current TradingView chart state: symbol, timeframe, login, Pine editor open, dialogs, and diagnostics.",
     destructive: false,
     inputSchema: emptySchema(),
     async run() {
@@ -180,7 +180,7 @@ const tools: ToolDef[] = [
   },
   {
     name: "tv_read_chart",
-    description: "Alias for tv_status. Returns the current symbol, timeframe, and page readiness.",
+    description: "Alias for tv_status. Returns the current symbol, timeframe, page readiness, and diagnostics.",
     destructive: false,
     inputSchema: emptySchema(),
     async run() {
@@ -512,6 +512,21 @@ const tools: ToolDef[] = [
       const t = await tab();
       const res = await tv.readChartMetadata(t.page);
       return { ok: true, data: res, tabUrl: t.url };
+    },
+  },
+  {
+    name: "tv_ensure_chart",
+    description: "Ensure a usable TradingView chart tab is open. If none exists, opens the Pine Editor and navigates to TV_DEFAULT_TRADINGVIEW_URL. Non-destructive navigation only.",
+    destructive: false,
+    inputSchema: emptySchema(),
+    async run() {
+      const t = await tab();
+      const state = await tv.readChartState(t.page);
+      const navigated = !state.diagnostics.tradingViewTabFound;
+      if (navigated) {
+        await tv.openPineEditor(t.page);
+      }
+      return { ok: true, data: { url: t.url, navigated, state }, tabUrl: t.url };
     },
   },
   {
