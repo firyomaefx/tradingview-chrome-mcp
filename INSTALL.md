@@ -18,15 +18,18 @@ What it does:
 2. Extracts it to `%LOCALAPPDATA%\tradingview-chrome-mcp`.
 3. Runs `npm install --production` in that directory.
 4. Creates a Start-menu shortcut named **"TradingView MCP"**.
-5. Registers the server with Codex (`codex mcp add`).
+5. Registers the server with Codex (`codex mcp add`) **if the Codex CLI is installed**.
 6. Creates a desktop shortcut on first run.
 
 Requirements:
 
 - Node.js >= 20.10
 - Windows 10/11
+- Codex CLI (optional, for automatic registration)
 
-No `git clone`, no `npm run build`, no manual Codex configuration.
+No `git clone`, no `npm run build`, no manual Codex configuration required.
+
+> **Note:** If `codex` is not found in PATH, the installer prints a warning and manual registration steps instead of failing.
 
 ### Launch the standalone app
 
@@ -171,6 +174,10 @@ Expected output includes `connected: true`, tab count, and emergency-stop state.
 
 ## Troubleshooting
 
+- **`codex` is not recognized**: the Codex CLI is not installed or not in PATH. Install it with `npm install -g @anthropic-ai/codex-cli`, or register the server manually:
+  ```powershell
+  codex mcp add tradingview-chrome-mcp --env TV_DASHBOARD_PORT=3939 --env TV_LOG_LEVEL=info --env TV_APPROVAL_TIMEOUT_MS=120000 -- node "$env:LOCALAPPDATA\tradingview-chrome-mcp\dist\server\index.js"
+  ```
 - **"No TradingView tab available"**: open `https://www.tradingview.com/chart/` in Chrome and re-run the launcher.
 - **"EADDRINUSE"**: another process is using port `3939` or `3940`. Change `TV_DASHBOARD_PORT` or `TV_MCP_HTTP_PORT`.
 - **Approvals not appearing**: ensure the dashboard opened at `http://127.0.0.1:3939`.

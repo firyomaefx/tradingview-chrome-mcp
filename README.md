@@ -20,7 +20,9 @@ Open PowerShell and run:
 irm https://raw.githubusercontent.com/firyomaefx/tradingview-chrome-mcp/main/scripts/install-cli.ps1 | iex
 ```
 
-This downloads the latest release zip, installs to `%LOCALAPPDATA%\tradingview-chrome-mcp`, creates a Start-menu shortcut, and registers the server with Codex. Requires Node.js but **no npm build step**.
+This downloads the latest release zip, installs to `%LOCALAPPDATA%\tradingview-chrome-mcp`, creates a Start-menu shortcut, and registers the server with Codex **if the Codex CLI is installed**. Requires Node.js but **no npm build step**.
+
+> If you see a warning that `codex` was not found, install the Codex CLI first (`npm install -g @anthropic-ai/codex-cli`) or register the server manually.
 
 ### 2. Launch
 

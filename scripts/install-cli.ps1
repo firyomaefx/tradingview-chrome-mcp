@@ -120,12 +120,29 @@ node -e "const http=require('http');const r=http.get('http://127.0.0.1:3939/api/
 "@
 Set-Content -Encoding ascii -Path "$InstallDir\health.cmd" $health
 
+function Test-CodexAvailable {
+  try { $null = Get-Command codex -ErrorAction Stop; return $true } catch { return $false }
+}
+
 # Codex registration.
+$registeredCodex = $false
 if (-not $NoCodex) {
-  Write-Host "Registering with Codex..."
-  $bin = "$InstallDir\dist\server\index.js"
-  codex mcp remove tradingview-chrome-mcp 2>$null | Out-Null
-  codex mcp add tradingview-chrome-mcp --env TV_DASHBOARD_PORT=3939 --env TV_LOG_LEVEL=info --env TV_APPROVAL_TIMEOUT_MS=120000 -- node $bin
+  if (Test-CodexAvailable) {
+    Write-Host "Registering with Codex..."
+    $bin = "$InstallDir\dist\server\index.js"
+    try {
+      codex mcp remove tradingview-chrome-mcp 2>$null | Out-Null
+      codex mcp add tradingview-chrome-mcp --env TV_DASHBOARD_PORT=3939 --env TV_LOG_LEVEL=info --env TV_APPROVAL_TIMEOUT_MS=120000 -- node $bin
+      $registeredCodex = $true
+    } catch {
+      Write-Warning "Codex CLI is available but registration failed: $_"
+      Write-Warning "You can register manually later once Codex is configured."
+    }
+  } else {
+    Write-Warning "Codex CLI ('codex') was not found in PATH. Skipping automatic Codex registration."
+    Write-Host "To register manually, install Codex CLI and run:"
+    Write-Host "  codex mcp add tradingview-chrome-mcp --env TV_DASHBOARD_PORT=3939 --env TV_LOG_LEVEL=info --env TV_APPROVAL_TIMEOUT_MS=120000 -- node $InstallDir\dist\server\index.js"
+  }
 }
 
 Remove-Item -LiteralPath $tmp -Recurse -Force -ErrorAction SilentlyContinue
@@ -135,7 +152,7 @@ Write-Host "Installed to $InstallDir"
 Write-Host "Start menu: tradingview-chrome-mcp"
 Write-Host "Dashboard: http://127.0.0.1:3939"
 Write-Host "Health check: $InstallDir\health.cmd"
-if (-not $NoCodex) { Write-Host "Codex MCP: run 'codex mcp list' to verify." }
+if ($registeredCodex) { Write-Host "Codex MCP: run 'codex mcp list' to verify." }
 Write-Host ""
 Write-Host "Next steps:"
 Write-Host "  1. Close all Chrome windows, then run scripts/start-chrome.ps1 (or start Chrome with --remote-debugging-port=9222)."
