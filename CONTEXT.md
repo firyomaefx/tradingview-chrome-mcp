@@ -26,6 +26,10 @@
 - Phase 5 installer is PowerShell-based (install/uninstall/health/launcher with auto-reconnect). No MSI/WiX.
 - Chrome extension is a minimal MV3 connector (badge + popup + content snapshot); no trading logic.
 
+## Repository
+- Pushed to GitHub: https://github.com/firyomaefx/tradingview-chrome-mcp (private, default branch `main`).
+- Initial commit `e3045f2` includes the full codebase; local-only artifacts (logs, screenshots, exports, .codex/, backups, tsconfig.tsbuildinfo) are excluded via `.gitignore`.
+
 ## Decisions
 - Auto-approve destructive was used only for the verification script run; the shipped server requires dashboard approval by default.
 - The destructive run operated on the user's current chart (no separate MCP-TEST layout could be created); symbol/timeframe were restored after.
