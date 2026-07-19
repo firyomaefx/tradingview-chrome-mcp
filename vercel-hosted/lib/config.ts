@@ -10,7 +10,7 @@ const ConfigSchema = z.object({
   telemetryAllowedKeys: z.array(z.string()).default(["symbol", "ticker", "timeframe"]),
   toolBackend: BackendSchema.default("mock"),
   mcpApiKeys: z.array(z.string()).optional(),
-  approvalAutoDestructive: z.boolean().default(true),
+  approvalAutoDestructive: z.boolean().default(false),
   redisUrl: z.string().optional(),
   redisToken: z.string().optional(),
   supabaseUrl: z.string().optional(),

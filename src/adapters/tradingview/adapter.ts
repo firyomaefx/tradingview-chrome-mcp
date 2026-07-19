@@ -723,8 +723,10 @@ export async function readStrategyTester(page: Page): Promise<StrategyTesterSumm
 }
 
 export async function captureScreenshot(page: Page, name?: string, fullPage = false): Promise<string> {
+  const safeName =
+    name && /^[A-Za-z0-9_.\- ]+$/.test(name) ? name.replace(/\s+/g, "_").slice(0, 80) : "screenshot";
   const ts = new Date().toISOString().replace(/[:.]/g, "-");
-  const filename = `${name ?? "screenshot"}-${ts}.png`;
+  const filename = `${safeName}-${ts}.png`;
   const dir = join(paths.projectRoot, "screenshots");
   mkdirSync(dir, { recursive: true });
   const path = join(dir, filename);

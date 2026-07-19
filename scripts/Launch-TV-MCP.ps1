@@ -11,7 +11,7 @@
 #     pwsh scripts/Launch-TV-MCP.ps1
 #
 # Safety defaults:
-#   - Uses the user's real Chrome profile (session is preserved by Chrome itself).
+#   - Uses a temporary Chrome profile for isolation unless TV_ALLOW_REAL_PROFILE=1.
 #   - NEVER stores cookies, passwords, or tokens.
 #   - Only kills existing Chrome processes if TV_ALLOW_CHROME_KILL=1 is set.
 [CmdletBinding()]
@@ -96,16 +96,25 @@ function Start-ChromeWithDebug {
   if (-not $exe) {
     throw "Google Chrome not found. Set TV_CHROME_PATH or install Chrome."
   }
-  $udd = if ($env:TV_CHROME_USER_DATA) { $env:TV_CHROME_USER_DATA } else { "$env:LocalAppData\Google\Chrome\User Data" }
-  Write-Host "Launching Chrome with remote debugging on port $DebugPort..." -ForegroundColor Cyan
+  $allowRealProfile = $env:TV_ALLOW_REAL_PROFILE -eq "1"
+  if ($allowRealProfile) {
+    $udd = if ($env:TV_CHROME_USER_DATA) { $env:TV_CHROME_USER_DATA } else { "$env:LocalAppData\Google\Chrome\User Data" }
+    Write-Host "WARNING: TV_ALLOW_REAL_PROFILE=1 - reusing your real Chrome profile (cookies, extensions, logins)." -ForegroundColor Red
+    Write-Host "Launching Chrome with remote debugging on port $DebugPort using real profile..." -ForegroundColor Cyan
+  } else {
+    $udd = Join-Path $env:TEMP ("tv-mcp-chrome-" + [System.Guid]::NewGuid().ToString("n").Substring(0, 12))
+    Write-Host "Launching Chrome with remote debugging on port $DebugPort using isolated temp profile..." -ForegroundColor Cyan
+  }
   $args = @(
     "--remote-debugging-port=$DebugPort",
     "--user-data-dir=`"$udd`"",
-    "--remote-allow-origins=*",
     "--no-first-run",
-    "--no-default-browser-check",
-    $DefaultTvUrl
+    "--no-default-browser-check"
   )
+  if ($allowRealProfile) {
+    $args += "--remote-allow-origins=*"
+  }
+  $args += $DefaultTvUrl
   Start-Process -FilePath $exe -ArgumentList $args -WindowStyle Normal
   # Wait for the debug endpoint.
   $deadline = (Get-Date).AddSeconds(30)
@@ -123,6 +132,13 @@ function Start-McpServer {
     throw "MCP server not found at $bin. Run 'npm run build' first."
   }
   Write-Host "Starting MCP server + dashboard..." -ForegroundColor Cyan
+  if (-not $env:TV_DASHBOARD_TOKEN) {
+    $bytes = New-Object byte[] 32
+    [System.Security.Cryptography.RandomNumberGenerator]::Fill($bytes)
+    $env:TV_DASHBOARD_TOKEN = ($bytes | ForEach-Object { $_.ToString("x2") }) -join ""
+  }
+  Write-Host "Dashboard token: $env:TV_DASHBOARD_TOKEN" -ForegroundColor Yellow
+  Write-Host "(Set TV_DASHBOARD_TOKEN to reuse a fixed token across launches.)" -ForegroundColor Gray
   $env:TV_CDP_URL = "http://127.0.0.1:$DebugPort"
   $env:TV_DASHBOARD_PORT = "$DashboardPort"
   $env:TV_LOG_LEVEL = "info"

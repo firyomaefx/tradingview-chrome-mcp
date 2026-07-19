@@ -2,10 +2,16 @@
  * Local control panel (dashboard). Express server bound to 127.0.0.1 only.
  * Provides status, pending approvals, action history (audit), screenshots,
  * and the emergency-stop button. No trading logic lives here.
+ *
+ * All /api/* endpoints require a bearer token. Set TV_DASHBOARD_TOKEN to a
+ * strong secret; if unset, a random token is generated and logged once at
+ * startup. This prevents other local users or malicious pages from approving
+ * actions or triggering the emergency stop.
  */
 import express from "express";
 import { readFile, readdir } from "node:fs/promises";
 import { existsSync } from "node:fs";
+import { randomBytes } from "node:crypto";
 import { join } from "node:path";
 import { logger } from "../logging/logger.js";
 import { paths, audit } from "../logging/logger.js";
@@ -14,7 +20,29 @@ import { listPending, listHistory, resolveApproval } from "../permissions/approv
 import { getBrowser, listTabs, findTradingViewTabs } from "../browser/controller.js";
 import * as tv from "../adapters/tradingview/adapter.js";
 
-const HTML = `<!doctype html>
+function generateToken(): string {
+  return randomBytes(32).toString("hex");
+}
+
+function getDashboardToken(): string {
+  if (process.env.TV_DASHBOARD_TOKEN) return process.env.TV_DASHBOARD_TOKEN;
+  const token = generateToken();
+  process.env.TV_DASHBOARD_TOKEN = token;
+  return token;
+}
+
+const DASHBOARD_TOKEN = getDashboardToken();
+
+function requireAuth(req: express.Request, res: express.Response, next: express.NextFunction) {
+  const auth = req.headers.authorization ?? "";
+  const expected = `Bearer ${DASHBOARD_TOKEN}`;
+  if (auth !== expected) {
+    return res.status(401).json({ error: "Unauthorized" });
+  }
+  next();
+}
+
+const HTML_TEMPLATE = `<!doctype html>
 <html lang="en">
 <head>
 <meta charset="utf-8" />
@@ -77,7 +105,8 @@ const HTML = `<!doctype html>
   </section>
 </main>
 <script>
-async function api(p){ const r=await fetch(p); return r.json(); }
+const TOKEN = "__DASHBOARD_TOKEN__";
+async function api(p){ const r=await fetch(p, {headers: {'Authorization': 'Bearer ' + TOKEN}}); return r.json(); }
 function $(id){return document.getElementById(id);}
 async function refresh(){
   try {
@@ -103,7 +132,7 @@ async function refresh(){
     $('status').innerHTML = html;
 
     const pend = await api('/api/pending');
-    $('pending').innerHTML = pend.length ? pend.map(p => '<div class="dialog"><b>'+p.tool+'</b> - '+p.message+' <button class="btn ok" onclick="dec(\\''+p.id+'\\',\\'approve\\')">Approve</button> <button class="btn danger" onclick="dec(\\''+p.id+'\\',\\'deny\\')">Deny</button></div>').join('') : '<span class="muted">none</span>';
+    $('pending').innerHTML = pend.length ? pend.map(p => '<div class="dialog"><b>'+p.tool+'</b> - '+p.message+' <button class="btn ok" onclick="dec(\''+p.id+'\',\'approve\')">Approve</button> <button class="btn danger" onclick="dec(\''+p.id+'\',\'deny\')">Deny</button></div>').join('') : '<span class="muted">none</span>';
 
     const h = await api('/api/history?limit=30');
     $('history').querySelector('tbody').innerHTML = h.map(x => '<tr><td>'+new Date(x.ts).toLocaleTimeString()+'</td><td>'+x.tool+'</td><td>'+x.result+'</td><td>'+(x.tabUrl||'').slice(0,40)+'</td><td>'+(x.durationMs!=null?x.durationMs+'ms':'')+'</td><td>'+(x.error||'')+'</td></tr>').join('');
@@ -112,9 +141,9 @@ async function refresh(){
     $('shots').innerHTML = shots.length ? shots.map(s => '<a href="/api/screenshot?file='+encodeURIComponent(s)+'" target="_blank"><img src="/api/screenshot?file='+encodeURIComponent(s)+'" style="max-height:160px" /></a>').join(' ') : '<span class="muted">none</span>';
   } catch (e) { $('status').textContent = 'refresh failed: '+e; }
 }
-window.dec = async (id, d) => { await fetch('/api/pending/'+id+'/'+d, {method:'POST'}); refresh(); };
+window.dec = async (id, d) => { await fetch('/api/pending/'+id+'/'+d, {method:'POST', headers: {'Authorization': 'Bearer ' + TOKEN}}); refresh(); };
 $('refreshBtn').onclick = refresh;
-$('esBtn').onclick = async () => { await fetch('/api/emergency_stop', {method:'POST'}); refresh(); };
+$('esBtn').onclick = async () => { await fetch('/api/emergency_stop', {method:'POST', headers: {'Authorization': 'Bearer ' + TOKEN}}); refresh(); };
 refresh();
 setInterval(refresh, 3000);
 </script>
@@ -125,7 +154,12 @@ export async function startDashboard(port: number): Promise<express.Express> {
   const app = express();
   app.use(express.json());
 
-  app.get("/", (_req, res) => res.type("html").send(HTML));
+  logger.info({ tokenSource: process.env.TV_DASHBOARD_TOKEN ? "env" : "generated" }, "dashboard token configured");
+
+  app.get("/", (_req, res) => res.type("html").send(HTML_TEMPLATE.replace("__DASHBOARD_TOKEN__", DASHBOARD_TOKEN)));
+
+  // All dashboard API endpoints require the bearer token.
+  app.use("/api", requireAuth);
 
   app.get("/api/status", async (_req, res) => {
     let connected = false;
@@ -159,7 +193,7 @@ export async function startDashboard(port: number): Promise<express.Express> {
   });
 
   app.get("/api/history", async (req, res) => {
-    const limit = Number(req.query.limit ?? 100);
+    const limit = Math.min(Number(req.query.limit ?? 100), 10_000);
     const lines: import("../logging/logger.js").AuditEntry[] = [];
     try {
       const raw = await readFile(paths.auditPath, "utf8");
@@ -181,7 +215,7 @@ export async function startDashboard(port: number): Promise<express.Express> {
   });
 
   app.get("/api/screenshots", async (req, res) => {
-    const limit = Number(req.query.limit ?? 20);
+    const limit = Math.min(Number(req.query.limit ?? 20), 1_000);
     const dir = join(paths.projectRoot, "screenshots");
     try {
       const files = (await readdir(dir)).filter((f) => f.endsWith(".png")).slice(-limit).reverse();

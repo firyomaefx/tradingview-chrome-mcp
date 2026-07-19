@@ -22,7 +22,14 @@ const KNOWN_CLIENTS: {
   clientId: string;
   confidence: "high" | "medium";
 }[] = [
-  // Anthropic clients
+  // Anthropic clients - most specific matchers first.
+  {
+    test: (_ua, headers) =>
+      /\bclaude[-_]?code\b/i.test(headers.get("x-client-name") ?? ""),
+    name: "Claude Code",
+    clientId: "claude-code",
+    confidence: "high",
+  },
   {
     test: (ua) => /\bClaude\b/i.test(ua) || /\bAnthropic\b/i.test(ua),
     name: "Claude Desktop",
@@ -34,13 +41,6 @@ const KNOWN_CLIENTS: {
       /\bclaude\b/i.test(headers.get("x-client-name") ?? ""),
     name: "Claude Desktop",
     clientId: "claude-desktop",
-    confidence: "high",
-  },
-  {
-    test: (_ua, headers) =>
-      /\bclaude[-_]?code\b/i.test(headers.get("x-client-name") ?? ""),
-    name: "Claude Code",
-    clientId: "claude-code",
     confidence: "high",
   },
 
@@ -143,7 +143,7 @@ const KNOWN_CLIENTS: {
   },
 ];
 
-function normalizeClientId(raw: string | null): string | null {
+function normalizeClientId(raw: string | null | undefined): string | null {
   if (!raw) return null;
   const id = raw.trim().toLowerCase();
   if (!id || id.length > 64) return null;
@@ -155,7 +155,7 @@ function normalizeClientId(raw: string | null): string | null {
 export function detectRemoteClient(
   userAgent: string,
   headers: Headers,
-  clientQuery: string | null
+  clientQuery: string | null | undefined
 ): DetectedClient {
   // 1. Header / User-Agent inspection.
   const ua = userAgent ?? "";

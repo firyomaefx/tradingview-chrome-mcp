@@ -3,6 +3,8 @@ import type { JSONRPCMessage } from "@modelcontextprotocol/sdk/types";
 import { validateKey } from "@/lib/auth/api-keys";
 import { getSession, refreshSession } from "@/lib/sessions/store";
 import { getSessionClient } from "@/app/api/sse/route";
+import { checkRateLimit } from "@/lib/rate-limit/limiter";
+import { messagesQueryParams } from "@/lib/validation/schemas";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -22,21 +24,45 @@ const localTransports = globalThis.__mcpSessionTransports ?? new Map();
 globalThis.__mcpSessionTransports = localTransports;
 
 export async function POST(req: NextRequest) {
-  const { searchParams } = new URL(req.url);
-  const key = searchParams.get("key");
-  const sessionId = searchParams.get("sessionId");
-
-  if (!key) {
-    return new Response("Unauthorized: missing key", { status: 401 });
+  if ((req.url?.length ?? 0) > 8_192) {
+    return new Response("Bad request: URL too long", { status: 400 });
   }
+
+  const contentLength = Number(req.headers.get("content-length") ?? "0");
+  if (contentLength > 2 * 1024 * 1024) {
+    return new Response("Bad request: body too large", { status: 413 });
+  }
+
+  const { searchParams } = new URL(req.url);
+  const queryParse = messagesQueryParams.safeParse({
+    key: searchParams.get("key"),
+    sessionId: searchParams.get("sessionId"),
+    client: searchParams.get("client") ?? undefined,
+  });
+  if (!queryParse.success) {
+    return new Response(`Bad request: ${queryParse.error.issues.map((i) => i.message).join(", ")}`, { status: 400 });
+  }
+  const { key, sessionId, client: clientParam } = queryParse.data;
 
   const apiKey = await validateKey(key);
   if (!apiKey) {
     return new Response("Unauthorized: invalid key", { status: 401 });
   }
 
-  if (!sessionId) {
-    return new Response("Bad request: missing sessionId", { status: 400 });
+  // Rate limit per API key before doing anything expensive.
+  const limit = await checkRateLimit(apiKey);
+  if (!limit.allowed) {
+    return new Response(
+      `Rate limit exceeded. Try again after ${limit.resetAt.toISOString()}.`,
+      {
+        status: 429,
+        headers: {
+          "X-RateLimit-Limit": String(limit.limit),
+          "X-RateLimit-Remaining": "0",
+          "X-RateLimit-Reset": limit.resetAt.toISOString(),
+        },
+      }
+    );
   }
 
   // Fast path: transport is in this function instance.
@@ -59,23 +85,42 @@ export async function POST(req: NextRequest) {
   // Best-effort remote client detection for this request. Usually the client
   // identity is established during SSE connection and is unchanged; this path
   // catches standalone POST probes or clients that re-send identifying headers.
-  const fallbackClient = {
-    clientId: searchParams.get("client") ?? "unknown",
-    source: searchParams.has("client") ? "query" : "default",
-    confidence: searchParams.has("client") ? "medium" : "low",
-    name: searchParams.has("client")
-      ? `Remote client (${searchParams.get("client")})`
-      : "Remote SSE MCP client",
-  } as const;
-  const client = getSessionClient(sessionId) ?? fallbackClient;
+  const sessionClient = getSessionClient(sessionId);
+  const fallbackClient = clientParam
+    ? {
+        name: `Remote client (${clientParam})`,
+        clientId: clientParam,
+        confidence: "medium" as const,
+        source: "query" as const,
+      }
+    : {
+        name: "Remote SSE MCP client",
+        clientId: "unknown",
+        confidence: "low" as const,
+        source: "default" as const,
+      };
+  const client = sessionClient ?? fallbackClient;
 
   if (client.source !== "default") {
     console.log("[messages] client identity:", client.clientId, client.source, client.confidence);
   }
 
-  const body = (await req.json()) as JSONRPCMessage;
+  let body: JSONRPCMessage;
+  try {
+    body = (await req.json()) as JSONRPCMessage;
+  } catch (e) {
+    return new Response(`Bad request: invalid JSON (${(e as Error).message})`, { status: 400 });
+  }
+
   transport.handlePostMessage(body);
   await refreshSession(sessionId);
 
-  return new Response("Accepted", { status: 202 });
+  return new Response("Accepted", {
+    status: 202,
+    headers: {
+      "X-RateLimit-Limit": String(limit.limit),
+      "X-RateLimit-Remaining": String(limit.remaining),
+      "X-RateLimit-Reset": limit.resetAt.toISOString(),
+    },
+  });
 }

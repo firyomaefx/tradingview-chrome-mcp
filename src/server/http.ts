@@ -21,8 +21,8 @@ export async function startHttpTransportIfEnabled(server: Server, port: number):
     return undefined;
   }
 
-  const bindHost = process.env.TV_MCP_HTTP_BIND ?? "127.0.0.1";
-  const isLocalhostOnly = bindHost === "127.0.0.1" || bindHost === "localhost";
+  const bindHost = "127.0.0.1";
+  const isLocalhostOnly = true;
 
   const transport = new StreamableHTTPServerTransport({
     sessionIdGenerator: () => randomUUID(),

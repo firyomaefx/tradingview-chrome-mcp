@@ -102,6 +102,7 @@ Full details: [`INSTALL.md`](INSTALL.md) · Tool schemas: [`TOOL_REFERENCE.md`](
 | **No credential extraction** | The server never reads cookies, tokens, passwords, or wallet keys. |
 | **No remote telemetry (local)** | The local server does not phone home. The hosted fork is opt-in and separate. |
 | **MCP host detection** | Knows whether Claude, Codex, ChatGPT, Cursor, etc. launched it. |
+| **Temporary Chrome profile by default** | Isolates the MCP session from your real Chrome profile. Set `TV_ALLOW_REAL_PROFILE=1` to opt into profile reuse. |
 | **Pine Script v6 ready** | Create, patch, save, compile, rename, and attach scripts. |
 | **Alerts & watchlists** | Read, add, sync, and delete symbols and price alerts. |
 | **Screenshots & data export** | Capture the chart or export visible metadata. |
@@ -134,7 +135,10 @@ Set environment variables before launching to customize behavior:
 | `TV_DEFAULT_TRADINGVIEW_URL` | `https://www.tradingview.com/chart/` | Chart URL to open when no tab exists. |
 | `TV_ALLOW_CHROME_LAUNCH` | `0` | Set to `1` to let the launcher start Chrome if none is found. |
 | `TV_ALLOW_CHROME_KILL` | `0` | Set to `1` to let the launcher close conflicting Chrome instances. |
+| `TV_ALLOW_REAL_PROFILE` | `0` | Set to `1` to reuse your real Chrome profile (cookies, extensions, logins). Default is an isolated temp profile. |
+| `TV_CHROME_USER_DATA` | `%LOCALAPPDATA%\Google\Chrome\User Data` | Real profile path used when `TV_ALLOW_REAL_PROFILE=1`. |
 | `TV_DASHBOARD_PORT` | `3939` | Port for the local control dashboard. |
+| `TV_DASHBOARD_TOKEN` | random generated | Bearer token required by the dashboard API. Set to reuse across launches. |
 | `TV_MCP_HTTP_PORT` | `3940` | Port for the optional Streamable HTTP transport; set `0` to disable. |
 | `TV_APPROVAL_TIMEOUT_MS` | `120000` | How long destructive actions wait for your approval. |
 
@@ -159,8 +163,9 @@ pwsh scripts/Launch-TV-MCP.ps1
                                               │  │ Policy /      │   │
 ┌─────────────────┐      CDP                  │  │ Approval queue│   │
 │  Google Chrome  │  ───────────────────────▶  │  └───────┬───────┘   │
-│  (your profile) │                           │          │          │
-└─────────────────┘                           │  ┌───────▼───────┐   │
+│ (isolated temp  │                           │          │          │
+│ profile by df.) │                           │  ┌───────▼───────┐   │
+└─────────────────┘                           │  │ Playwright    │   │
                                               │  │ Playwright    │   │
                                               │  │ DOM automation│   │
                                               │  └───────────────┘   │
@@ -179,6 +184,8 @@ Read [`ARCHITECTURE.md`](ARCHITECTURE.md) for component diagrams, invariants, an
 ## Security & privacy
 
 - **No credential storage.** The server never reads, stores, or transmits cookies, tokens, or passwords.
+- **Temporary Chrome profile by default.** Each launch gets an isolated profile unless you set `TV_ALLOW_REAL_PROFILE=1`.
+- **Dashboard bearer token.** All dashboard `/api/*` endpoints require `Authorization: Bearer <TV_DASHBOARD_TOKEN>`.
 - **Local-only audit logs.** Every action is written to `logs/audit.jsonl`; sensitive inputs are redacted.
 - **Approval-gated writes.** Destructive tools require explicit dashboard approval.
 - **Emergency stop.** Instantly disables all tool execution.

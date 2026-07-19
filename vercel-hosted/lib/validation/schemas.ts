@@ -82,3 +82,14 @@ export const browserListTabsIn = sVoid;
 export const emergencyStopIn = sVoid;
 export const emergencyClearIn = sVoid;
 export const pingIn = sVoid;
+
+export const sseQueryParams = z.object({
+  key: z.string().min(1).max(512),
+  client: z.string().max(64).regex(/^[a-zA-Z0-9_-]*$/).optional(),
+}).strict();
+
+export const messagesQueryParams = z.object({
+  key: z.string().min(1).max(512),
+  sessionId: z.string().uuid(),
+  client: z.string().max(64).regex(/^[a-zA-Z0-9_-]*$/).optional(),
+}).strict();

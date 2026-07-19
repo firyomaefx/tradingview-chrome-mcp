@@ -16,6 +16,13 @@ import {
   ListToolsRequestSchema,
 } from "@modelcontextprotocol/sdk/types.js";
 import { redactParameters, logUsage } from "../telemetry/telemetry.js";
+
+function redactError(message?: string): string | undefined {
+  if (!message) return undefined;
+  let trimmed = message.slice(0, 200);
+  trimmed = trimmed.replace(/https?:\/\/[^\s]+/g, "[url]");
+  return trimmed;
+}
 import { loadFeatureFlags } from "../features/flags.js";
 import type { ToolDef, ToolContext, ToolResult } from "../tools/registry.js";
 
@@ -138,7 +145,7 @@ export function createMcpServer(registry: ToolRegistry, context: ServerContext) 
           parameters: redactParameters(name, args),
           duration_ms: duration,
           success,
-          error_message: errorMessage,
+          error_message: redactError(errorMessage),
         });
       }
     }

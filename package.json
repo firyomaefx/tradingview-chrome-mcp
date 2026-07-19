@@ -17,7 +17,7 @@
     "dashboard": "node dist/dashboard/index.js",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "node --test --import tsx tests/unit/*.test.ts",
-    "test:integration": "node --test --import tsx tests/integration/*.test.ts",
+    "test:integration": "node --test-force-exit --test --import tsx tests/integration/*.test.ts",
     "lint": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {

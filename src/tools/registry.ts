@@ -53,7 +53,9 @@ async function tab(): Promise<TradingViewTab> {
       activeTab = null;
     }
   }
-  activeTab = await getTradingViewTab();
+  const t = await getTradingViewTab();
+  if (!t) throw new Error("No TradingView tab found");
+  activeTab = t;
   return activeTab;
 }
 

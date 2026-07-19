@@ -3,16 +3,21 @@
  *
  * Priority:
  *   1. Attach to the user's existing Chrome session via CDP.
- *   2. If no debug endpoint is reachable, launch the user's real Chrome with
- *      --remote-debugging-port=9222 using their existing user-data-dir.
- *   3. Use Playwright over CDP for all interaction (no separate profile).
+ *   2. If no debug endpoint is reachable and TV_ALLOW_REAL_PROFILE=1, launch the
+ *      user's real Chrome with --remote-debugging-port=9222 using their
+ *      existing user-data-dir.
+ *   3. Otherwise launch a fresh temporary Chrome profile on the debug port.
  *
- * Never launches a temp profile unless explicitly requested via
- * TV_ALLOW_TEMP_PROFILE=1.
+ * Defaulting to a temp profile keeps the user's real profile, cookies, and
+ * extensions isolated. Set TV_ALLOW_REAL_PROFILE=1 to reuse your logged-in
+ * profile; this also enables --remote-allow-origins=* because a real-profile
+ * launch otherwise cannot reliably accept CDP connections from Playwright.
  */
 import { chromium } from "playwright";
 import { spawn, ChildProcess } from "node:child_process";
 import { existsSync } from "node:fs";
+import { mkdtempSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { logger } from "../logging/logger.js";
 
@@ -24,6 +29,9 @@ export interface TabInfo {
   title: string;
   tabId: number;
 }
+
+/** Backwards-compatible alias used by older code. */
+export type TradingViewTab = TabInfo;
 
 const CDP_URL = process.env.TV_CDP_URL ?? "http://127.0.0.1:9222";
 const CDP_PORT = 9222;
@@ -53,6 +61,10 @@ function chromeUserDataDir(): string {
   );
 }
 
+function tempUserDataDir(): string {
+  return mkdtempSync(join(tmpdir(), "tv-mcp-chrome-"));
+}
+
 async function tryConnectCDP(): Promise<import("playwright").Browser | null> {
   try {
     const browser = await chromium.connectOverCDP(CDP_URL, { timeout: 5_000 });
@@ -77,27 +89,47 @@ async function navigateToDefaultUrl(page: import("playwright").Page): Promise<vo
   }
 }
 
+export function isTradingViewUrl(url: string): boolean {
+  try {
+    const u = new URL(url);
+    return u.hostname === "tradingview.com" || u.hostname === "www.tradingview.com";
+  } catch {
+    return false;
+  }
+}
+
 async function launchChromeWithDebugPort(): Promise<import("playwright").Browser | null> {
-  if (process.env.TV_ALLOW_TEMP_PROFILE === "1") return null;
   const exe = chromeExecutable();
   if (!exe) {
     logger.warn("No Chrome executable found; set TV_CHROME_PATH or start Chrome with --remote-debugging-port=9222");
     return null;
   }
-  const udd = chromeUserDataDir();
-  logger.info({ exe, udd }, "Launching user's Chrome with remote debugging on port 9222");
-  launchedProc = spawn(
-    exe,
-    [
-      `--remote-debugging-port=${CDP_PORT}`,
-      `--user-data-dir=${udd}`,
-      DEFAULT_TV_URL,
-      "--remote-allow-origins=*",
-      "--no-first-run",
-      "--no-default-browser-check",
-    ],
-    { detached: false, stdio: "ignore" }
-  );
+
+  const allowRealProfile = process.env.TV_ALLOW_REAL_PROFILE === "1";
+  const userDataDir = allowRealProfile ? chromeUserDataDir() : tempUserDataDir();
+
+  if (allowRealProfile) {
+    logger.warn(
+      "TV_ALLOW_REAL_PROFILE=1: reusing the user's real Chrome profile. " +
+        "This exposes cookies, extensions, and login sessions to the MCP server."
+    );
+  } else {
+    logger.info({ userDataDir }, "Launching Chrome with a temporary profile for isolation");
+  }
+
+  const args = [
+    `--remote-debugging-port=${CDP_PORT}`,
+    `--user-data-dir=${userDataDir}`,
+    "--no-first-run",
+    "--no-default-browser-check",
+  ];
+  if (allowRealProfile) {
+    // Required for Playwright to attach to a real-profile Chrome instance
+    // across origin boundaries on some platforms.
+    args.push("--remote-allow-origins=*");
+  }
+
+  launchedProc = spawn(exe, [...args, DEFAULT_TV_URL], { detached: false, stdio: "ignore" });
   launchedProc.unref();
 
   const deadline = Date.now() + LAUNCH_TIMEOUT_MS;
@@ -105,7 +137,6 @@ async function launchChromeWithDebugPort(): Promise<import("playwright").Browser
     await new Promise((r) => setTimeout(r, 800));
     const browser = await tryConnectCDP();
     if (browser) {
-      // If we launched Chrome, make sure the first tab is on the default URL.
       try {
         const firstPage = browser.contexts()[0]?.pages()[0];
         if (firstPage) await navigateToDefaultUrl(firstPage);
@@ -119,124 +150,76 @@ async function launchChromeWithDebugPort(): Promise<import("playwright").Browser
   return null;
 }
 
-export async function getBrowser(): Promise<import("playwright").Browser> {
-  if (cachedBrowser?.isConnected()) return cachedBrowser;
-  cachedBrowser = null;
-  const existing = await tryConnectCDP();
-  if (existing) {
-    cachedBrowser = existing;
-    return existing;
-  }
-  // Only auto-launch the user Chrome if explicitly enabled. By default we
-  // require the user to start Chrome with --remote-debugging-port=9222 so we
-  // never silently re-launch a profile that is already in use (which would
-  // focus the existing process without enabling the debug port).
-  if (process.env.TV_ALLOW_CHROME_LAUNCH === "1") {
-    const launched = await launchChromeWithDebugPort();
-    if (launched) {
-      cachedBrowser = launched;
-      return launched;
-    }
-  }
-  throw new Error(
-    "Could not connect to Chrome. Start Chrome with --remote-debugging-port=9222 (close other Chrome windows first), or set TV_ALLOW_CHROME_LAUNCH=1 and TV_CHROME_PATH."
-  );
-}
-
-export async function isPageAlive(page: import("playwright").Page): Promise<boolean> {
-  try {
-    await Promise.race([
-      page.evaluate(() => document.title),
-      new Promise<never>((_, reject) => setTimeout(() => reject(new Error("page health timeout")), 3_000)),
-    ]);
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-export async function closeBrowser(): Promise<void> {
+export async function getBrowser(): Promise<import("playwright").Browser | null> {
   if (cachedBrowser) {
     try {
-      await cachedBrowser.close();
+      await cachedBrowser.contexts()[0]?.pages()[0]?.evaluate(() => true);
+      return cachedBrowser;
     } catch {
-      /* ignore */
+      cachedBrowser = null;
     }
-    cachedBrowser = null;
   }
-  if (launchedProc && !launchedProc.killed) {
-    try {
-      launchedProc.kill();
-    } catch {
-      /* ignore */
-    }
-    launchedProc = null;
+  cachedBrowser = await tryConnectCDP();
+  if (!cachedBrowser) {
+    cachedBrowser = await launchChromeWithDebugPort();
   }
+  return cachedBrowser;
 }
 
-export async function listTabs(): Promise<TabInfo[]> {
+export async function getTradingViewTab(): Promise<TabInfo | null> {
   const browser = await getBrowser();
-  const contexts = browser.contexts();
-  const tabs: TabInfo[] = [];
-  let id = 1;
-  for (const ctx of contexts) {
-    for (const page of ctx.pages()) {
-      const url = page.url();
-      const title = await page.title().catch(() => "");
-      tabs.push({ page, context: ctx, browser, url, title, tabId: id++ });
+  if (!browser) return null;
+  const pages = browser.contexts().flatMap((c) => c.pages());
+  let idx = 0;
+  for (const page of pages) {
+    idx++;
+    const url = page.url();
+    if (isTradingViewUrl(url)) {
+      return {
+        page,
+        context: page.context(),
+        browser,
+        url,
+        title: await page.title().catch(() => ""),
+        tabId: idx,
+      };
     }
   }
-  return tabs;
+  return null;
 }
 
-export interface TradingViewTab extends TabInfo {
-  isTradingView: true;
+export async function listTabs(): Promise<Array<{ url: string; title: string; tabId: number }>> {
+  const browser = await getBrowser();
+  if (!browser) return [];
+  let idx = 0;
+  return browser
+    .contexts()
+    .flatMap((c) => c.pages())
+    .map((page) => ({
+      url: page.url(),
+      title: page.url(),
+      tabId: ++idx,
+    }));
 }
 
-export function isTradingViewUrl(url: string): boolean {
-  return /https:\/\/(www\.)?tradingview\.com\//i.test(url);
+export async function findTradingViewTabs(): Promise<TabInfo[]> {
+  const browser = await getBrowser();
+  if (!browser) return [];
+  let idx = 0;
+  return browser
+    .contexts()
+    .flatMap((c) => c.pages())
+    .filter((page) => isTradingViewUrl(page.url()))
+    .map((page) => ({
+      page,
+      context: page.context(),
+      browser,
+      url: page.url(),
+      title: page.url(),
+      tabId: ++idx,
+    }));
 }
 
-export async function findTradingViewTabs(): Promise<TradingViewTab[]> {
-  const tabs = await listTabs();
-  return tabs.filter((t) => isTradingViewUrl(t.url)).map((t) => ({ ...t, isTradingView: true as const }));
+export function isChromeLaunchedByUs(): boolean {
+  return launchedProc !== null && !launchedProc.killed;
 }
-
-export async function getTradingViewTab(preferred?: { tabId?: number; titleContains?: string }): Promise<TradingViewTab> {
-  const tvTabs = await findTradingViewTabs();
-  if (tvTabs.length === 0) {
-    // If we are allowed to launch Chrome, the launched browser already opened
-    // the default URL; if still no tab is found, we cannot continue.
-    throw new Error("No open TradingView tab found. Open https://www.tradingview.com/chart/ in Chrome first.");
-  }
-  let chosen: TradingViewTab | undefined;
-  if (preferred?.tabId) {
-    const t = tvTabs.find((x) => x.tabId === preferred.tabId);
-    if (t && (await isPageAlive(t.page))) chosen = t;
-  }
-  if (preferred?.titleContains && !chosen) {
-    const q = preferred.titleContains.toLowerCase();
-    for (const t of tvTabs) {
-      if (t.title.toLowerCase().includes(q) && (await isPageAlive(t.page))) {
-        chosen = t;
-        break;
-      }
-    }
-  }
-  // Prefer chart tabs, then first available, filtering out detached pages.
-  const aliveTabs: TradingViewTab[] = [];
-  for (const t of tvTabs) {
-    if (await isPageAlive(t.page)) aliveTabs.push(t);
-  }
-  const chartTab = aliveTabs.find((t) => /tradingview\.com\/chart\//i.test(t.url));
-  const final: TradingViewTab = chosen ?? chartTab ?? aliveTabs[0]!;
-  if (!final) {
-    throw new Error("All TradingView tabs appear detached (page crashed or refreshed). Try reconnecting.");
-  }
-  // Bring the tab to the front so the chart legend and toolbar render
-  // (TradingView lazily renders these only when the tab is active).
-  await final.page.bringToFront().catch(() => {});
-  await final.page.waitForLoadState("domcontentloaded", { timeout: 8000 }).catch(() => {});
-  return final;
-}
-

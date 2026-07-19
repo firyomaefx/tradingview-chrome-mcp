@@ -35,6 +35,14 @@ jobs:
         run: node scripts/smoke.mjs
         timeout-minutes: 1
 
+      - name: Install Playwright browsers
+        run: npx playwright install chromium
+        timeout-minutes: 5
+
+      - name: Browser integration smoke test
+        run: npm run test:integration
+        timeout-minutes: 3
+
   hosted-app:
     runs-on: ubuntu-latest
     defaults:
