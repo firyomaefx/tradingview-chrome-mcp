@@ -18,13 +18,36 @@ import assert from "node:assert";
 import { describe, it, before, after } from "node:test";
 import { chromium } from "playwright";
 
-const TEST_URL = process.env.TEST_TRADINGVIEW_URL ?? "about:blank";
+const TEST_URL = process.env.TEST_TRADINGVIEW_URL ?? "https://www.tradingview.com/chart/";
 const CHROME_DEBUG_PORT = Number(process.env.CHROME_DEBUG_PORT ?? 9222);
+
+/** Minimal offline TradingView chart mock so CI can test tv_status without network. */
+function mockTradingViewChart(symbol: string, interval: string): string {
+  return `<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>${symbol} — ${interval}</title>
+</head>
+<body>
+  <header>
+    <button aria-label="Change symbol">${symbol}</button>
+    <button aria-label="Change interval">${interval}</button>
+  </header>
+  <main data-qa-id="chart-pane">
+    <canvas width="800" height="600" style="display:block"></canvas>
+  </main>
+  <script>document.body.classList.add("chart-page");</script>
+</body>
+</html>`;
+}
 
 describe("browser smoke", { concurrency: false, timeout: 120_000 }, () => {
   let transport: StdioClientTransport | null = null;
   let client: Client | null = null;
   let browserHandle: Awaited<ReturnType<typeof chromium.launch>> | null = null;
+  let routeContext: import("playwright").BrowserContext | null = null;
 
   before(async () => {
     // 1. Ensure a browser with the debug port is available.
@@ -39,13 +62,25 @@ describe("browser smoke", { concurrency: false, timeout: 120_000 }, () => {
       browserHandle = browser;
     }
 
-    // 2. Open the test URL in a tab so the MCP server finds a page.
+    // 2. Open an offline TradingView mock chart so the MCP server finds a TV tab.
     const context = browser.contexts()[0] ?? (await browser.newContext());
+    routeContext = context;
+    const TEST_SYMBOL = "NASDAQ:AAPL";
+    const TEST_INTERVAL = "60";
+    await context.route("https://www.tradingview.com/chart/**", (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: "text/html",
+        body: mockTradingViewChart(TEST_SYMBOL, TEST_INTERVAL),
+      })
+    );
     const pages = context.pages();
     const targetPage =
-      pages.find((p) => p.url().includes(TEST_URL)) ?? (await context.newPage());
-    if (!targetPage.url().includes(TEST_URL)) {
-      await targetPage.goto(TEST_URL, { waitUntil: "domcontentloaded" });
+      pages.find((p) => p.url().startsWith(TEST_URL)) ?? (await context.newPage());
+    if (!targetPage.url().startsWith(TEST_URL)) {
+      await targetPage.goto(`${TEST_URL}?symbol=${encodeURIComponent(TEST_SYMBOL)}&interval=${TEST_INTERVAL}`, {
+        waitUntil: "domcontentloaded",
+      });
     }
 
     // 3. Launch the local MCP server via STDIO transport.
