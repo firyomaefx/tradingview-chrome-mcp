@@ -17,7 +17,11 @@ export interface HttpTransportHandle {
 }
 
 export async function startHttpTransportIfEnabled(server: Server, port: number): Promise<HttpTransportHandle | undefined> {
-  if (!process.env.TV_MCP_HTTP_PORT && !process.env.TV_ENABLE_HTTP_MCP) {
+  const httpPortEnv = process.env.TV_MCP_HTTP_PORT;
+  const httpEnabled =
+    (httpPortEnv && httpPortEnv !== "0" && !isNaN(Number(httpPortEnv))) ||
+    process.env.TV_ENABLE_HTTP_MCP === "1";
+  if (!httpEnabled) {
     return undefined;
   }
 

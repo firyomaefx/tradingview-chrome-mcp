@@ -14,3 +14,4 @@ backups/
 .cache/
 .codex/
 tsconfig.tsbuildinfo
+*.exe

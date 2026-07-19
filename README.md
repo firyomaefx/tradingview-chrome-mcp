@@ -17,8 +17,9 @@ A standalone, local MCP server that connects Claude, Codex CLI, ChatGPT Desktop,
 
 ## 🆕 Latest update — just pushed to GitHub
 
-The most recent `main` push closes the remaining gaps against full autonomous Pine Script development:
+The most recent `main` push closes the remaining gaps against full autonomous Pine Script development and adds a fully portable Windows build:
 
+- **Portable Windows `.exe`** — a single self-contained executable built with `caxa`. No Node.js install, no registry, no system files. Logs and backups are redirected to `%LOCALAPPDATA%\tradingview-chrome-mcp`.
 - **Full layout management** — save, duplicate, rename, reset, list, switch, and export chart layouts locally.
 - **Indicator management** — add, remove, hide, show, and update indicator/strategy settings from the chart legend.
 - **Autonomous Pine repair loop** — `tv_pine_autofix` runs read → compile → LLM patch → save → add-to-chart → verify automatically when `OPENAI_API_KEY` or `ANTHROPIC_API_KEY` is set.
@@ -50,7 +51,27 @@ No API keys, no TradingView credentials, and no live trades.
 
 ## Quick start — 2 minutes
 
-### Option A: Standalone Windows app (recommended)
+### Option A: Portable Windows `.exe` (recommended)
+
+No Node.js, no installer, no registry/system changes.
+
+1. Download `tradingview-chrome-mcp.exe` from the [latest release](https://github.com/firyomaefx/tradingview-chrome-mcp/releases/latest).
+2. Put it anywhere (desktop, USB drive, project folder).
+3. Double-click it, or run from PowerShell / terminal:
+
+```powershell
+# Default dashboard on http://127.0.0.1:3939
+.\tradingview-chrome-mcp.exe
+
+# Use custom ports
+$env:TV_DASHBOARD_PORT = "3941"
+$env:TV_MCP_HTTP_PORT = "0"   # disable optional HTTP transport; STDIO still works
+.\tradingview-chrome-mcp.exe
+```
+
+First launch unpacks the embedded Node.js runtime and dependencies to `%LOCALAPPDATA%\tradingview-chrome-mcp`; subsequent launches reuse the cache and start in seconds. All logs, backups, screenshots, and exports are written there so nothing is lost when you move or delete the `.exe`.
+
+### Option B: One-line PowerShell installer
 
 Copy this into PowerShell and press Enter:
 
@@ -67,7 +88,7 @@ What happens:
 4. On launch, detects or starts Chrome with `--remote-debugging-port=9222`.
 5. Opens the control dashboard at `http://127.0.0.1:3939`.
 
-### Option B: From source (any OS)
+### Option C: From source (any OS)
 
 ```powershell
 git clone https://github.com/firyomaefx/tradingview-chrome-mcp.git
@@ -77,7 +98,7 @@ npm run build
 pwsh scripts/Launch-TV-MCP.ps1 -CreateShortcut
 ```
 
-### Option C: Vercel-hosted market-data fork
+### Option D: Vercel-hosted market-data fork
 
 For a serverless SSE MCP endpoint with privacy-first telemetry, see [`vercel-hosted/`](vercel-hosted/) and [`HOSTED.md`](HOSTED.md).
 
@@ -87,7 +108,8 @@ For a serverless SSE MCP endpoint with privacy-first telemetry, see [`vercel-hos
 
 | Method | Best for | Build step | One-click launcher |
 |---|---|---|---|
-| **One-line PowerShell installer** | Windows users who want an app | No | Yes |
+| **Portable `.exe`** | Windows users who want a single file | No | Yes — double-click |
+| **One-line PowerShell installer** | Windows users who want Start-menu shortcuts | No | Yes |
 | **Clone + build from source** | Developers or macOS/Linux | Yes | Yes (`Launch-TV-MCP.ps1`) |
 | **Vercel-hosted SSE fork** | Teams needing a remote market-data MCP | Yes (Next.js) | No |
 
@@ -115,7 +137,7 @@ Full details: [`INSTALL.md`](INSTALL.md) · Tool schemas: [`TOOL_REFERENCE.md`](
 
 ## Tool categories
 
-The server exposes **33 tools** grouped by job:
+The server exposes **48 tools** grouped by job:
 
 - **Diagnostics** — `ping`, `mcp_client_info`
 - **Chart control** — `tv_status`, `tv_read_chart`, `tv_chart_metadata`, `tv_change_symbol`, `tv_change_timeframe`, `tv_ensure_chart`
@@ -146,6 +168,7 @@ Set environment variables before launching to customize behavior:
 | `TV_DASHBOARD_PORT` | `3939` | Port for the local control dashboard. |
 | `TV_DASHBOARD_TOKEN` | random generated | Bearer token required by the dashboard API. Set to reuse across launches. |
 | `TV_MCP_HTTP_PORT` | `3940` | Port for the optional Streamable HTTP transport; set `0` to disable. |
+| `TV_DATA_DIR` | project root (`.exe` uses `%LOCALAPPDATA%\tradingview-chrome-mcp`) | Directory for logs, backups, screenshots, exports, and browser cache. |
 | `TV_APPROVAL_TIMEOUT_MS` | `120000` | How long destructive actions wait for your approval. |
 | `OPENAI_API_KEY` | — | Enables `tv_pine_autofix` automatic patching via OpenAI. |
 | `ANTHROPIC_API_KEY` | — | Enables `tv_pine_autofix` automatic patching via Anthropic. |
@@ -157,6 +180,21 @@ Example: open directly on XAUUSD
 $env:TV_DEFAULT_TRADINGVIEW_URL = "https://www.tradingview.com/chart/?symbol=OANDA%3AXAUUSD"
 pwsh scripts/Launch-TV-MCP.ps1
 ```
+
+---
+
+## Building the portable `.exe`
+
+From a Windows machine with Node.js 22+ and npm:
+
+```powershell
+npm install
+npm run build:exe
+```
+
+This produces `tradingview-chrome-mcp.exe` (~150 MB). It embeds Node.js, the compiled server, and all runtime dependencies using [`caxa`](https://github.com/leafac/caxa), so the binary runs on any Windows PC without a separate Node.js install.
+
+The build excludes tests, source TypeScript, Vercel-hosted code, scripts, documentation, and cached files to keep the archive as small as possible. First launch extracts the payload to `%LOCALAPPDATA%\tradingview-chrome-mcp`; later launches are nearly instant because they reuse the cached extraction.
 
 ---
 
@@ -209,7 +247,7 @@ Read [`ARCHITECTURE.md`](ARCHITECTURE.md) for component diagrams, invariants, an
 tradingview-chrome-mcp/
 ├── src/                    # Local MCP server
 │   ├── server/             # STDIO + HTTP transports
-│   ├── tools/              # Tool registry (33 tools)
+│   ├── tools/              # Tool registry (48 tools)
 │   ├── adapters/           # TradingView DOM automation
 │   ├── browser/            # Playwright/CDP controller
 │   ├── dashboard/          # Local Express control panel

@@ -13,7 +13,11 @@ import pino from "pino";
 
 const hereDir = dirname(fileURLToPath(import.meta.url));
 const projectRoot = join(hereDir, "..", "..");
-const logsDir = join(projectRoot, "logs");
+// When distributed as a standalone executable the code runs from a temporary
+// extraction directory. TV_DATA_DIR lets the user (or the executable bootstrap)
+// redirect persistent artifacts (logs, backups, screenshots) to a stable path.
+const dataDir = process.env.TV_DATA_DIR ? process.env.TV_DATA_DIR : projectRoot;
+const logsDir = join(dataDir, "logs");
 const auditPath = join(logsDir, "audit.jsonl");
 
 mkdirSync(logsDir, { recursive: true });
@@ -82,4 +86,4 @@ export function logFile(path: string): string {
   return path;
 }
 
-export const paths = { logsDir, auditPath, projectRoot };
+export const paths = { logsDir, auditPath, projectRoot: dataDir };
