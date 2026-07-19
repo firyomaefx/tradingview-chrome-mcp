@@ -10,6 +10,7 @@ import * as policy from "../permissions/policy.js";
 import { getTradingViewTab, getBrowser, listTabs, type TradingViewTab } from "../browser/controller.js";
 import * as tv from "../adapters/tradingview/adapter.js";
 import { detectMcpClient, type DetectedClient } from "../detect/client.js";
+import { runAutofix } from "../llm/autofix.js";
 
 export interface ToolContext {
   requestApproval: (message: string) => Promise<boolean>;
@@ -268,8 +269,9 @@ const tools: ToolDef[] = [
       const source = String(args.source ?? "");
       const t = await tab();
       if (!(await tv.hasMonacoEditor(t.page)).valueOf()) await tv.openPineEditor(t.page);
+      const backup = await tv.backupPineSource(t.page, "before-create");
       await tv.setPineSource(t.page, source);
-      return { ok: true, data: { replaced: true, length: source.length }, tabUrl: t.url };
+      return { ok: true, data: { replaced: true, length: source.length, backup }, tabUrl: t.url };
     },
   },
   {
@@ -284,8 +286,9 @@ const tools: ToolDef[] = [
       const source = String(args.source ?? "");
       const t = await tab();
       if (!(await tv.hasMonacoEditor(t.page)).valueOf()) await tv.openPineEditor(t.page);
+      const backup = await tv.backupPineSource(t.page, "before-patch");
       await tv.setPineSource(t.page, source);
-      return { ok: true, data: { patched: true, length: source.length }, tabUrl: t.url };
+      return { ok: true, data: { patched: true, length: source.length, backup }, tabUrl: t.url };
     },
   },
   {
@@ -581,6 +584,259 @@ const tools: ToolDef[] = [
       const res = await tv.addHorizontalLine(t.page);
       audit({ ts: new Date().toISOString(), tool: "tv_drawing_add_trendline", result: res.added ? "ok" : "error", tabUrl: t.url });
       return { ok: res.added, data: res, tabUrl: t.url };
+    },
+  },
+  {
+    name: "tv_layout_save",
+    description: "Save the current chart layout. Provide a name to perform 'Save layout as...'. DESTRUCTIVE: overwrites the saved layout in your TradingView account.",
+    destructive: true,
+    inputSchema: schemaFromProperties({
+      name: { type: "string", description: "Optional new name for 'Save layout as...'" },
+    }),
+    async run(args, ctx) {
+      const approved = await ctx.requestApproval(`Save current chart layout${args.name ? ` as "${args.name}"` : ""}?`);
+      if (!approved) return blocked("Layout save cancelled by user");
+      const t = await tab();
+      const res = await tv.saveLayout(t.page, typeof args.name === "string" ? args.name : undefined);
+      audit({ ts: new Date().toISOString(), tool: "tv_layout_save", args, result: res.saved ? "ok" : "error", tabUrl: t.url });
+      return { ok: res.saved, data: res, tabUrl: t.url };
+    },
+  },
+  {
+    name: "tv_layout_duplicate",
+    description: "Duplicate the active chart layout. Optionally provide a new name. DESTRUCTIVE: creates a new layout in your account.",
+    destructive: true,
+    inputSchema: schemaFromProperties({
+      name: { type: "string", description: "Optional name for the duplicated layout" },
+    }),
+    async run(args, ctx) {
+      const approved = await ctx.requestApproval(`Duplicate current chart layout${args.name ? ` as "${args.name}"` : ""}?`);
+      if (!approved) return blocked("Layout duplicate cancelled by user");
+      const t = await tab();
+      const res = await tv.duplicateLayout(t.page, typeof args.name === "string" ? args.name : undefined);
+      audit({ ts: new Date().toISOString(), tool: "tv_layout_duplicate", args, result: res.duplicated ? "ok" : "error", tabUrl: t.url });
+      return { ok: res.duplicated, data: res, tabUrl: t.url };
+    },
+  },
+  {
+    name: "tv_layout_rename",
+    description: "Rename the active chart layout. DESTRUCTIVE: changes the saved layout name.",
+    destructive: true,
+    inputSchema: schemaFromProperties({
+      name: { type: "string", description: "New layout name" },
+    }, ["name"]),
+    async run(args, ctx) {
+      const name = String(args.name ?? "");
+      const approved = await ctx.requestApproval(`Rename active chart layout to "${name}"?`);
+      if (!approved) return blocked("Layout rename cancelled by user");
+      const t = await tab();
+      const res = await tv.renameLayout(t.page, name);
+      audit({ ts: new Date().toISOString(), tool: "tv_layout_rename", args, result: res.renamed ? "ok" : "error", tabUrl: t.url });
+      return { ok: res.renamed, data: res, tabUrl: t.url };
+    },
+  },
+  {
+    name: "tv_layout_reset",
+    description: "Reset the active chart layout to its default/empty state. DESTRUCTIVE: removes indicators and drawings.",
+    destructive: true,
+    inputSchema: emptySchema(),
+    async run(_a, ctx) {
+      const approved = await ctx.requestApproval("Reset the active chart layout to default?");
+      if (!approved) return blocked("Layout reset cancelled by user");
+      const t = await tab();
+      const res = await tv.resetLayout(t.page);
+      audit({ ts: new Date().toISOString(), tool: "tv_layout_reset", result: res.reset ? "ok" : "error", tabUrl: t.url });
+      return { ok: res.reset, data: res, tabUrl: t.url };
+    },
+  },
+  {
+    name: "tv_layout_export",
+    description: "Export a local snapshot of the current layout (screenshot + metadata JSON) to ./layouts. Non-destructive.",
+    destructive: false,
+    inputSchema: schemaFromProperties({
+      name: { type: "string", description: "Optional base filename prefix" },
+    }),
+    async run(args) {
+      const t = await tab();
+      const res = await tv.exportLayout(t.page, typeof args.name === "string" ? args.name : undefined);
+      return { ok: res.exported, data: res, tabUrl: t.url };
+    },
+  },
+  {
+    name: "tv_indicator_add",
+    description: "Add an indicator or strategy to the chart by name (e.g. 'RSI', 'MACD'). DESTRUCTIVE: modifies the chart.",
+    destructive: true,
+    inputSchema: schemaFromProperties({
+      name: { type: "string", description: "Exact or partial name of the indicator/strategy to add" },
+    }, ["name"]),
+    async run(args, ctx) {
+      const name = String(args.name ?? "");
+      const approved = await ctx.requestApproval(`Add indicator/strategy "${name}" to the chart?`);
+      if (!approved) return blocked("Indicator add cancelled by user");
+      const t = await tab();
+      const res = await tv.addIndicator(t.page, name);
+      audit({ ts: new Date().toISOString(), tool: "tv_indicator_add", args, result: res.added ? "ok" : "error", tabUrl: t.url });
+      return { ok: res.added, data: res, tabUrl: t.url };
+    },
+  },
+  {
+    name: "tv_indicator_remove",
+    description: "Remove an indicator from the chart by exact legend name or zero-based index. DESTRUCTIVE.",
+    destructive: true,
+    inputSchema: schemaFromProperties({
+      nameOrIndex: { oneOf: [{ type: "string" }, { type: "integer" }], description: "Indicator legend name or zero-based index" },
+    }, ["nameOrIndex"]),
+    async run(args, ctx) {
+      const nameOrIndex = typeof args.nameOrIndex === "number" ? args.nameOrIndex : String(args.nameOrIndex ?? "");
+      const approved = await ctx.requestApproval(`Remove indicator "${nameOrIndex}" from the chart?`);
+      if (!approved) return blocked("Indicator remove cancelled by user");
+      const t = await tab();
+      const res = await tv.removeIndicator(t.page, nameOrIndex);
+      audit({ ts: new Date().toISOString(), tool: "tv_indicator_remove", args, result: res.removed ? "ok" : "error", tabUrl: t.url });
+      return { ok: res.removed, data: res, tabUrl: t.url };
+    },
+  },
+  {
+    name: "tv_indicator_hide",
+    description: "Hide an indicator by legend name or zero-based index. DESTRUCTIVE: changes chart visibility.",
+    destructive: true,
+    inputSchema: schemaFromProperties({
+      nameOrIndex: { oneOf: [{ type: "string" }, { type: "integer" }], description: "Indicator legend name or zero-based index" },
+    }, ["nameOrIndex"]),
+    async run(args, ctx) {
+      const nameOrIndex = typeof args.nameOrIndex === "number" ? args.nameOrIndex : String(args.nameOrIndex ?? "");
+      const approved = await ctx.requestApproval(`Hide indicator "${nameOrIndex}"?`);
+      if (!approved) return blocked("Indicator hide cancelled by user");
+      const t = await tab();
+      const res = await tv.hideIndicator(t.page, nameOrIndex);
+      audit({ ts: new Date().toISOString(), tool: "tv_indicator_hide", args, result: res.hidden ? "ok" : "error", tabUrl: t.url });
+      return { ok: res.hidden, data: res, tabUrl: t.url };
+    },
+  },
+  {
+    name: "tv_indicator_show",
+    description: "Show a previously hidden indicator by legend name or zero-based index. DESTRUCTIVE: changes chart visibility.",
+    destructive: true,
+    inputSchema: schemaFromProperties({
+      nameOrIndex: { oneOf: [{ type: "string" }, { type: "integer" }], description: "Indicator legend name or zero-based index" },
+    }, ["nameOrIndex"]),
+    async run(args, ctx) {
+      const nameOrIndex = typeof args.nameOrIndex === "number" ? args.nameOrIndex : String(args.nameOrIndex ?? "");
+      const approved = await ctx.requestApproval(`Show indicator "${nameOrIndex}"?`);
+      if (!approved) return blocked("Indicator show cancelled by user");
+      const t = await tab();
+      const res = await tv.showIndicator(t.page, nameOrIndex);
+      audit({ ts: new Date().toISOString(), tool: "tv_indicator_show", args, result: res.shown ? "ok" : "error", tabUrl: t.url });
+      return { ok: res.shown, data: res, tabUrl: t.url };
+    },
+  },
+  {
+    name: "tv_indicator_settings",
+    description: "Update an indicator's settings by legend name or index. `settings` is a map of input label to value. DESTRUCTIVE.",
+    destructive: true,
+    inputSchema: schemaFromProperties({
+      nameOrIndex: { oneOf: [{ type: "string" }, { type: "integer" }], description: "Indicator legend name or zero-based index" },
+      settings: { type: "object", description: "Map of setting label/placeholder to new value", additionalProperties: true },
+    }, ["nameOrIndex", "settings"]),
+    async run(args, ctx) {
+      const nameOrIndex = typeof args.nameOrIndex === "number" ? args.nameOrIndex : String(args.nameOrIndex ?? "");
+      const settings = typeof args.settings === "object" && args.settings !== null ? (args.settings as Record<string, number | string | boolean>) : {};
+      const approved = await ctx.requestApproval(`Update settings for indicator "${nameOrIndex}"?`);
+      if (!approved) return blocked("Indicator settings update cancelled by user");
+      const t = await tab();
+      const res = await tv.setIndicatorSettings(t.page, nameOrIndex, settings);
+      audit({ ts: new Date().toISOString(), tool: "tv_indicator_settings", args, result: res.updated ? "ok" : "error", tabUrl: t.url });
+      return { ok: res.updated, data: res, tabUrl: t.url };
+    },
+  },
+  {
+    name: "tv_chart_verify",
+    description: "Best-effort runtime verification that an indicator is on the chart and expected plots/labels/tables are present. Read-only.",
+    destructive: false,
+    inputSchema: schemaFromProperties({
+      expectedIndicatorName: { type: "string", description: "Indicator name to look for in the legend" },
+      expectedPlots: { type: "integer", description: "Minimum number of plots expected (canvas plots cannot be auto-counted; will be reported)" },
+      expectedLabels: { type: "integer", description: "Minimum number of label elements expected" },
+      expectedTables: { type: "integer", description: "Minimum number of table elements expected" },
+      maxWaitMs: { type: "integer", description: "Max time to wait for objects to appear (default 3000)" },
+    }),
+    async run(args) {
+      const t = await tab();
+      const res = await tv.verifyChart(t.page, {
+        expectedIndicatorName: typeof args.expectedIndicatorName === "string" ? args.expectedIndicatorName : undefined,
+        expectedPlots: typeof args.expectedPlots === "number" ? args.expectedPlots : undefined,
+        expectedLabels: typeof args.expectedLabels === "number" ? args.expectedLabels : undefined,
+        expectedTables: typeof args.expectedTables === "number" ? args.expectedTables : undefined,
+        maxWaitMs: typeof args.maxWaitMs === "number" ? args.maxWaitMs : undefined,
+      });
+      return { ok: true, data: res, tabUrl: t.url };
+    },
+  },
+  {
+    name: "tv_pine_backup",
+    description: "Back up the current Pine editor source to ./backups with a timestamp. Non-destructive.",
+    destructive: false,
+    inputSchema: schemaFromProperties({
+      label: { type: "string", description: "Optional label appended to the backup filename" },
+    }),
+    async run(args) {
+      const t = await tab();
+      const res = await tv.backupPineSource(t.page, typeof args.label === "string" ? args.label : undefined);
+      return { ok: res.backedUp, data: res, tabUrl: t.url };
+    },
+  },
+  {
+    name: "tv_pine_list_backups",
+    description: "List available Pine source backups from ./backups, newest first. Read-only.",
+    destructive: false,
+    inputSchema: emptySchema(),
+    async run() {
+      const backups = tv.listBackups();
+      return { ok: true, data: { count: backups.length, backups }, tabUrl: undefined };
+    },
+  },
+  {
+    name: "tv_pine_restore",
+    description: "Restore a backup into the Pine editor. If backupName is omitted, restores the most recent backup. DESTRUCTIVE: overwrites editor contents (does not auto-save).",
+    destructive: true,
+    inputSchema: schemaFromProperties({
+      backupName: { type: "string", description: "Exact backup filename from tv_pine_list_backups" },
+    }),
+    async run(args, ctx) {
+      const approved = await ctx.requestApproval("Restore Pine source from backup? This overwrites the editor contents.");
+      if (!approved) return blocked("Restore cancelled by user");
+      const t = await tab();
+      const res = await tv.restorePineSource(t.page, typeof args.backupName === "string" ? args.backupName : undefined);
+      audit({ ts: new Date().toISOString(), tool: "tv_pine_restore", args, result: res.restored ? "ok" : "error", tabUrl: t.url });
+      return { ok: res.restored, data: res, tabUrl: t.url };
+    },
+  },
+  {
+    name: "tv_pine_autofix",
+    description: "Autonomous Pine Script repair loop. Reads source, compiles, optionally calls an LLM (OPENAI_API_KEY/ANTHROPIC_API_KEY) to patch errors, saves, adds to chart, and verifies. DESTRUCTIVE: may save and add to chart. Set autoSave/autoAddToChart=false to run read-only diagnostics.",
+    destructive: true,
+    inputSchema: schemaFromProperties({
+      goal: { type: "string", description: "Natural-language goal, e.g. 'Fix all compile errors and add moving average'" },
+      source: { type: "string", description: "Optional replacement source. If omitted, reads from the editor." },
+      maxAttempts: { type: "integer", description: "Maximum repair attempts (1-10, default 5)" },
+      autoSave: { type: "boolean", description: "Automatically save patched source (default true)" },
+      autoAddToChart: { type: "boolean", description: "Automatically add to chart after compile success (default true)" },
+      expectedIndicatorName: { type: "string", description: "Name to verify in chart legend after add-to-chart" },
+    }, ["goal"]),
+    async run(args, ctx) {
+      const t = await tab();
+      const report = await runAutofix(
+        { page: t.page, tabUrl: t.url, requestApproval: ctx.requestApproval },
+        {
+          goal: String(args.goal ?? ""),
+          source: typeof args.source === "string" ? args.source : undefined,
+          maxAttempts: typeof args.maxAttempts === "number" ? args.maxAttempts : undefined,
+          autoSave: typeof args.autoSave === "boolean" ? args.autoSave : undefined,
+          autoAddToChart: typeof args.autoAddToChart === "boolean" ? args.autoAddToChart : undefined,
+          expectedIndicatorName: typeof args.expectedIndicatorName === "string" ? args.expectedIndicatorName : undefined,
+        }
+      );
+      return { ok: report.success, data: report, screenshot: report.screenshot ?? undefined, tabUrl: t.url };
     },
   },
 ];

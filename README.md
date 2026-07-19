@@ -17,12 +17,15 @@ A standalone, local MCP server that connects Claude, Codex CLI, ChatGPT Desktop,
 
 ## 🆕 Latest update — just pushed to GitHub
 
-The most recent `main` push adds **MCP host client detection** and a round of polish:
+The most recent `main` push closes the remaining gaps against full autonomous Pine Script development:
 
-- **The server now knows which AI is talking to it.** `mcp_client_info` detects Claude Desktop, Claude Code, Anthropic Codex CLI, ChatGPT Desktop, Cursor, Windsurf, VS Code, JetBrains, and other MCP hosts by walking the parent process chain. The result is also included in `ping`, `tv_status`, and `tv_read_chart` so the model can adapt its responses.
-- **Tool count is now 33** — diagnostics, chart reading, Pine Script editing, alerts, watchlists, layouts, screenshots, strategy tester, and safety tools.
-- **Codex CLI installer is more forgiving.** If `codex` is not installed, the one-line installer warns and prints manual steps instead of crashing.
-- **CI is green on every push.** 41 local unit tests + 4 hosted registry tests pass on both Windows (`ci`) and Ubuntu (`hosted-app`).
+- **Full layout management** — save, duplicate, rename, reset, list, switch, and export chart layouts locally.
+- **Indicator management** — add, remove, hide, show, and update indicator/strategy settings from the chart legend.
+- **Autonomous Pine repair loop** — `tv_pine_autofix` runs read → compile → LLM patch → save → add-to-chart → verify automatically when `OPENAI_API_KEY` or `ANTHROPIC_API_KEY` is set.
+- **Runtime chart verification** — `tv_chart_verify` checks that the expected indicator, labels, tables, and plots appear after add-to-chart.
+- **Automatic Pine Script backups** — every `tv_pine_create`/`tv_pine_patch` snapshots the previous source to `./backups`; restore with `tv_pine_restore`.
+- **Tool count is now 48** — diagnostics, chart reading, Pine Script editing, alerts, watchlists, layouts, indicators, screenshots, strategy tester, verification, backups, and safety tools.
+- **CI is green on every push.** 41 local unit tests + browser integration smoke test + hosted registry tests pass on both Windows (`ci`) and Ubuntu (`hosted-app`).
 - **Docs refreshed.** README, TOOL_REFERENCE, and CONTEXT are updated with the current state.
 
 [See the commit →](https://github.com/firyomaefx/tradingview-chrome-mcp/commit/3bead48)
@@ -37,6 +40,7 @@ Because the server controls Chrome through the Chrome DevTools Protocol, plain E
 - *“Create a Pine Script v6 EMA crossover indicator and add it to the chart”* → opens the editor, writes the script, compiles, saves, and attaches it.
 - *“Change symbol to NASDAQ:AAPL and switch to the 15-minute timeframe”* → changes the chart after dashboard approval.
 - *“Show me the Strategy Tester results”* → reads backtest performance from the open panel.
+- *“Fix all Pine Script compile errors and keep trying until the indicator loads”* → `tv_pine_autofix` compiles, patches via LLM, saves, adds to chart, and verifies.
 - *“Add BTCUSD to my watchlist and set an alert when it crosses $70,000”* → syncs the watchlist and creates the alert.
 - *“Take a screenshot of the chart”* → captures the current tab.
 
@@ -114,12 +118,14 @@ Full details: [`INSTALL.md`](INSTALL.md) · Tool schemas: [`TOOL_REFERENCE.md`](
 The server exposes **33 tools** grouped by job:
 
 - **Diagnostics** — `ping`, `mcp_client_info`
-- **Chart control** — `tv_status`, `tv_read_chart`, `tv_chart_metadata`, `tv_change_symbol`, `tv_change_timeframe`
-- **Pine Script** — `tv_open_pine_editor`, `tv_read_pine_source`, `tv_pine_create`, `tv_pine_patch`, `tv_pine_save`, `tv_pine_add_to_chart`, `tv_pine_compile_errors`, `tv_rename_script`
+- **Chart control** — `tv_status`, `tv_read_chart`, `tv_chart_metadata`, `tv_change_symbol`, `tv_change_timeframe`, `tv_ensure_chart`
+- **Pine Script** — `tv_open_pine_editor`, `tv_read_pine_source`, `tv_pine_create`, `tv_pine_patch`, `tv_pine_save`, `tv_pine_add_to_chart`, `tv_pine_compile_errors`, `tv_rename_script`, `tv_pine_backup`, `tv_pine_list_backups`, `tv_pine_restore`, `tv_pine_autofix`
 - **Watchlists** — `tv_watchlist_read`, `tv_watchlist_add_symbol`, `tv_watchlist_sync`
 - **Alerts** — `tv_alert_create`, `tv_alert_list`, `tv_alert_delete`
-- **Layouts** — `tv_layout_list`, `tv_layout_switch`
-- **Utilities** — `tv_screenshot`, `tv_dismiss_dialogs`, `tv_read_strategy_tester`, `tv_chart_data_export`, `browser_status`
+- **Layouts** — `tv_layout_list`, `tv_layout_switch`, `tv_layout_save`, `tv_layout_duplicate`, `tv_layout_rename`, `tv_layout_reset`, `tv_layout_export`
+- **Indicators** — `tv_indicator_add`, `tv_indicator_remove`, `tv_indicator_hide`, `tv_indicator_show`, `tv_indicator_settings`
+- **Verification** — `tv_chart_verify`
+- **Utilities** — `tv_screenshot`, `tv_dismiss_dialogs`, `tv_read_strategy_tester`, `tv_chart_data_export`, `browser_status`, `browser_list_tabs`
 - **Safety** — `emergency_stop`, `emergency_clear`
 
 See [`TOOL_REFERENCE.md`](TOOL_REFERENCE.md) for every input schema and return value.
@@ -141,6 +147,9 @@ Set environment variables before launching to customize behavior:
 | `TV_DASHBOARD_TOKEN` | random generated | Bearer token required by the dashboard API. Set to reuse across launches. |
 | `TV_MCP_HTTP_PORT` | `3940` | Port for the optional Streamable HTTP transport; set `0` to disable. |
 | `TV_APPROVAL_TIMEOUT_MS` | `120000` | How long destructive actions wait for your approval. |
+| `OPENAI_API_KEY` | — | Enables `tv_pine_autofix` automatic patching via OpenAI. |
+| `ANTHROPIC_API_KEY` | — | Enables `tv_pine_autofix` automatic patching via Anthropic. |
+| `TV_AUTOFIX_MODEL` | `gpt-4o` / `claude-3-5-sonnet-20241022` | Model used by the autonomous repair loop. |
 
 Example: open directly on XAUUSD
 

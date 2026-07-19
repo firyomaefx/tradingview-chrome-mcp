@@ -8,7 +8,7 @@
 import type { Page } from "playwright";
 import { logger } from "../../logging/logger.js";
 import { join } from "node:path";
-import { mkdirSync, writeFileSync } from "node:fs";
+import { mkdirSync, writeFileSync, readdirSync, readFileSync, statSync, existsSync } from "node:fs";
 import { paths } from "../../logging/logger.js";
 
 export interface ChartState {
@@ -1056,4 +1056,543 @@ export async function createLayout(page: Page, name: string): Promise<{ created:
   }
   await page.keyboard.press("Escape").catch(() => {});
   return { created: false, note: "no New layout menu item found" };
+}
+
+// ---------------------------------------------------------------------------
+// Layout management helpers
+// ---------------------------------------------------------------------------
+
+async function openLayoutMenu(page: Page): Promise<boolean> {
+  const opener = page.locator('[data-qa-id="chart-layouts"], button[aria-label*="ayout"], button[aria-label*="Layout"]').first();
+  if (!(await opener.isVisible({ timeout: 800 }).catch(() => false))) return false;
+  await opener.click({ timeout: 2000 }).catch(() => {});
+  await page.waitForTimeout(700);
+  return true;
+}
+
+async function findMenuItem(
+  page: Page,
+  labels: string[]
+): Promise<import("playwright").Locator | null> {
+  for (const label of labels) {
+    const loc = page
+      .locator(
+        `[role="menuitem"]:has-text("${label}"), button:has-text("${label}"), [class*="menu"] button:has-text("${label}"), [class*="menu"] [class*="item"]:has-text("${label}")`
+      )
+      .first();
+    if (await loc.isVisible({ timeout: 600 }).catch(() => false)) return loc;
+  }
+  return null;
+}
+
+async function dismissIfNamePrompt(page: Page, name: string): Promise<void> {
+  const nameInput = page.locator('input[placeholder*="ame"], [class*="layout"] input[type="text"], [role="dialog"] input[type="text"]').first();
+  if (await nameInput.isVisible({ timeout: 1000 }).catch(() => false)) {
+    await nameInput.fill(name, { timeout: 1500 }).catch(() => {});
+    await page.waitForTimeout(300);
+    await nameInput.press("Enter").catch(() => {});
+    await page.waitForTimeout(800);
+  }
+}
+
+/**
+ * Save the current chart layout. If `name` is provided, performs "Save layout as".
+ */
+export async function saveLayout(
+  page: Page,
+  name?: string
+): Promise<{ saved: boolean; name: string | null; note: string; dialog: string | null }> {
+  const activeName = await textOf(page, [
+    '[data-qa-id="chart-layouts"]',
+    'button[aria-label*="ayout"]',
+    '[class*="layout"] button',
+  ]);
+  if (!(await openLayoutMenu(page))) {
+    return { saved: false, name: null, note: "layout menu opener not found", dialog: null };
+  }
+  const labels = name
+    ? ["Save layout as...", "Save As", "Save layout"]
+    : ["Save layout", "Save"];
+  const item = await findMenuItem(page, labels);
+  if (!item) {
+    await page.keyboard.press("Escape").catch(() => {});
+    return { saved: false, name: null, note: "save menu item not found", dialog: null };
+  }
+  await item.click({ timeout: 2000 }).catch(() => {});
+  if (name) await dismissIfNamePrompt(page, name);
+  await page.waitForTimeout(800);
+  return { saved: true, name: name ?? activeName, note: "save action triggered", dialog: (await readDialogs(page))[0] ?? null };
+}
+
+/**
+ * Duplicate the active chart layout.
+ */
+export async function duplicateLayout(
+  page: Page,
+  name?: string
+): Promise<{ duplicated: boolean; newName: string | null; note: string; dialog: string | null }> {
+  if (!(await openLayoutMenu(page))) {
+    return { duplicated: false, newName: null, note: "layout menu opener not found", dialog: null };
+  }
+  const item = await findMenuItem(page, ["Duplicate layout", "Make a copy", "Duplicate"]);
+  if (!item) {
+    await page.keyboard.press("Escape").catch(() => {});
+    return { duplicated: false, newName: null, note: "duplicate menu item not found", dialog: null };
+  }
+  await item.click({ timeout: 2000 }).catch(() => {});
+  if (name) await dismissIfNamePrompt(page, name);
+  await page.waitForTimeout(800);
+  const dialog = (await readDialogs(page))[0] ?? null;
+  const newName = name ?? (await textOf(page, ['[data-qa-id="chart-layouts"]'])) ?? null;
+  return { duplicated: true, newName, note: "duplicate action triggered", dialog };
+}
+
+/**
+ * Rename the active chart layout.
+ */
+export async function renameLayout(
+  page: Page,
+  name: string
+): Promise<{ renamed: boolean; oldName: string | null; newName: string | null; note: string; dialog: string | null }> {
+  const oldName = await textOf(page, ['[data-qa-id="chart-layouts"]']);
+  if (!(await openLayoutMenu(page))) {
+    return { renamed: false, oldName, newName: null, note: "layout menu opener not found", dialog: null };
+  }
+  const item = await findMenuItem(page, ["Rename layout", "Rename...", "Rename"]);
+  if (!item) {
+    await page.keyboard.press("Escape").catch(() => {});
+    return { renamed: false, oldName, newName: null, note: "rename menu item not found", dialog: null };
+  }
+  await item.click({ timeout: 2000 }).catch(() => {});
+  await dismissIfNamePrompt(page, name);
+  await page.waitForTimeout(800);
+  const newName = (await textOf(page, ['[data-qa-id="chart-layouts"]'])) ?? name;
+  return { renamed: newName === name, oldName, newName, note: "rename action triggered", dialog: (await readDialogs(page))[0] ?? null };
+}
+
+/**
+ * Reset the active chart layout to its default/empty state.
+ */
+export async function resetLayout(page: Page): Promise<{ reset: boolean; note: string; dialog: string | null }> {
+  if (!(await openLayoutMenu(page))) {
+    return { reset: false, note: "layout menu opener not found", dialog: null };
+  }
+  const item = await findMenuItem(page, ["Reset chart layout", "Reset layout", "Reset"]);
+  if (!item) {
+    await page.keyboard.press("Escape").catch(() => {});
+    return { reset: false, note: "reset menu item not found", dialog: null };
+  }
+  await item.click({ timeout: 2000 }).catch(() => {});
+  await page.waitForTimeout(800);
+  return { reset: true, note: "reset action triggered", dialog: (await readDialogs(page))[0] ?? null };
+}
+
+/**
+ * Export a local snapshot of the current layout: a screenshot plus JSON metadata.
+ * TradingView's cloud layout export is not exposed via the DOM; this captures
+ * the visible chart state to ./layouts for offline backup.
+ */
+export async function exportLayout(
+  page: Page,
+  name?: string
+): Promise<{ exported: boolean; path: string | null; note: string }> {
+  const dir = join(paths.projectRoot, "layouts");
+  mkdirSync(dir, { recursive: true });
+  const state = await readChartState(page);
+  const safeName = name
+    ? name.replace(/[^A-Za-z0-9_.\- ]+/g, "").replace(/\s+/g, "_").slice(0, 40)
+    : "layout";
+  const ts = new Date().toISOString().replace(/[:.]/g, "-");
+  const base = join(dir, `${safeName}-${ts}`);
+  const screenshotPath = await captureScreenshot(page, `layout-${safeName}`, false);
+  const metaPath = `${base}.json`;
+  const metadata = {
+    exportedAt: new Date().toISOString(),
+    url: state.url,
+    symbol: state.symbol,
+    timeframe: state.timeframe,
+    isLoggedIn: state.isLoggedIn,
+    screenshotPath,
+  };
+  writeFileSync(metaPath, JSON.stringify(metadata, null, 2), "utf8");
+  return { exported: true, path: metaPath, note: `metadata written; screenshot: ${screenshotPath}` };
+}
+
+// ---------------------------------------------------------------------------
+// Indicator management
+// ---------------------------------------------------------------------------
+
+async function openIndicatorDialog(page: Page): Promise<boolean> {
+  const opener = page
+    .locator(
+      'button[aria-label="Indicators"], [data-qa-id="open-indicators-dialog"], button[data-name="open-indicators-dialog"], [class*="header-toolbar"] button:has-text("Indicators")'
+    )
+    .first();
+  if (!(await opener.isVisible({ timeout: 800 }).catch(() => false))) return false;
+  await opener.click({ timeout: 2000 }).catch(() => {});
+  await page.waitForTimeout(800);
+  return true;
+}
+
+/**
+ * Add an indicator/strategy to the chart by name (e.g. "RSI", "MACD").
+ */
+export async function addIndicator(
+  page: Page,
+  name: string
+): Promise<{ added: boolean; dialog: string | null; note: string }> {
+  if (!(await openIndicatorDialog(page))) {
+    return { added: false, dialog: null, note: "Indicators dialog opener not found" };
+  }
+  const search = page
+    .locator(
+      'input[placeholder*="Search"], [data-qa-id="indicators-search-input"], [class*="indicators"] input[type="text"]'
+    )
+    .first();
+  if (await search.isVisible({ timeout: 1500 }).catch(() => false)) {
+    await search.fill(name, { timeout: 1500 }).catch(() => {});
+    await page.waitForTimeout(600);
+    await search.press("Enter").catch(() => {});
+  }
+  // Try to click the first visible result item.
+  const result = page.locator('[data-name="indicator-item"], [class*="indicator-item"], [class*="tv-dialog"] [class*="title"]').first();
+  if (await result.isVisible({ timeout: 1500 }).catch(() => false)) {
+    await result.click({ timeout: 2000 }).catch(() => {});
+  }
+  await page.waitForTimeout(800);
+  await page.keyboard.press("Escape").catch(() => {});
+  return { added: true, dialog: (await readDialogs(page))[0] ?? null, note: "indicator add action triggered" };
+}
+
+interface LegendIndicator {
+  name: string;
+  visible: boolean;
+}
+
+async function readLegendIndicators(page: Page): Promise<LegendIndicator[]> {
+  return page
+    .evaluate(() => {
+      const out: LegendIndicator[] = [];
+      const roots = document.querySelectorAll('[class*="chart-legend"], [class*="legend"], [data-name="legend"], .chart-gui-wrapper .legend');
+      roots.forEach((root) => {
+        root.querySelectorAll("*").forEach((el) => {
+          const t = (el as HTMLElement).innerText?.trim() ?? "";
+          if (!t || t.length > 80) return;
+          // Skip UI chrome labels and duplicates.
+          if (out.some((x) => x.name === t)) return;
+          // Visibility is inferred from the presence of a visible eye/close icon.
+          const row = el.closest('[class*="legendItem"], [class*="source"], [data-name*="legend"], [class*="legend"]');
+          const hasClosedEye = row
+            ? !!Array.from(row.querySelectorAll("*")).find(
+                (n) =>
+                  /hidden|invisible|closed/i.test((n as HTMLElement).title ?? (n as HTMLElement).ariaLabel ?? "") ||
+                  (n as HTMLElement).className?.includes("closed")
+              )
+            : false;
+          out.push({ name: t, visible: !hasClosedEye });
+        });
+      });
+      return out.slice(0, 100);
+    })
+    .catch(() => []);
+}
+
+async function clickLegendAction(
+  page: Page,
+  nameOrIndex: string | number,
+  action: "remove" | "hide" | "show" | "settings"
+): Promise<{ ok: boolean; note: string }> {
+  const indicators = await readLegendIndicators(page);
+  const targetName = typeof nameOrIndex === "number" ? indicators[nameOrIndex]?.name : nameOrIndex;
+  if (!targetName) return { ok: false, note: `indicator "${nameOrIndex}" not found in legend` };
+
+  const result = await page.evaluate(
+    ({ targetName, action }) => {
+      const roots = Array.from(
+        document.querySelectorAll('[class*="chart-legend"], [class*="legend"], [data-name="legend"], .chart-gui-wrapper .legend')
+      );
+      for (const root of roots) {
+        const items = Array.from<Element>(root.querySelectorAll("*")).filter((el) =>
+          (el as HTMLElement).innerText?.toLowerCase().includes(targetName.toLowerCase())
+        );
+        for (const el of items) {
+          const row = el.closest('[class*="legendItem"], [class*="source"], [data-name*="legend"]');
+          if (!row) continue;
+          const buttons = Array.from<Element>(row.querySelectorAll("button, [role=\"button\"], [class*=\"button\"]"));
+          const actionRe =
+            action === "remove"
+              ? /remove|delete|close|trash/i
+              : action === "settings"
+              ? /settings|gear|cog/i
+              : /eye|visibility|show|hide/i;
+          const target = buttons.find((b) =>
+            actionRe.test(
+              (b as HTMLElement).title +
+                " " +
+                ((b as HTMLElement).ariaLabel ?? "") +
+                " " +
+                (b as HTMLElement).className
+            )
+          ) as HTMLElement | undefined;
+          if (target) {
+            target.click();
+            return true;
+          }
+        }
+      }
+      return false;
+    },
+    { targetName, action }
+  );
+  await page.waitForTimeout(600);
+  return result
+    ? { ok: true, note: `${action} action triggered for "${targetName}"` }
+    : { ok: false, note: `no ${action} control found for "${targetName}"` };
+}
+
+/**
+ * Remove an indicator from the chart by exact legend name or zero-based index.
+ */
+export async function removeIndicator(
+  page: Page,
+  nameOrIndex: string | number
+): Promise<{ removed: boolean; note: string }> {
+  const res = await clickLegendAction(page, nameOrIndex, "remove");
+  return { removed: res.ok, note: res.note };
+}
+
+/**
+ * Hide an indicator by legend name or index.
+ */
+export async function hideIndicator(
+  page: Page,
+  nameOrIndex: string | number
+): Promise<{ hidden: boolean; note: string }> {
+  const res = await clickLegendAction(page, nameOrIndex, "hide");
+  return { hidden: res.ok, note: res.note };
+}
+
+/**
+ * Show a previously hidden indicator.
+ */
+export async function showIndicator(
+  page: Page,
+  nameOrIndex: string | number
+): Promise<{ shown: boolean; note: string }> {
+  const res = await clickLegendAction(page, nameOrIndex, "show");
+  return { shown: res.ok, note: res.note };
+}
+
+/**
+ * Update indicator/strategy settings by legend name or index.
+ * `settings` is a map of input labels/placeholders to values.
+ */
+export async function setIndicatorSettings(
+  page: Page,
+  nameOrIndex: string | number,
+  settings: Record<string, number | string | boolean>
+): Promise<{ updated: boolean; note: string }> {
+  const openRes = await clickLegendAction(page, nameOrIndex, "settings");
+  if (!openRes.ok) return { updated: false, note: openRes.note };
+  await page.waitForTimeout(800);
+
+  // Fill visible inputs that match setting keys by label/placeholder.
+  for (const [key, value] of Object.entries(settings)) {
+    const input = page
+      .locator(
+        `label:has-text("${key}") + input, label:has-text("${key}") + select, input[placeholder*="${key}"], input[aria-label*="${key}"]`
+      )
+      .first();
+    if (await input.isVisible({ timeout: 600 }).catch(() => false)) {
+      const tag = await input.evaluate((el) => (el as HTMLInputElement).tagName.toLowerCase()).catch(() => "input");
+      if (tag === "select") {
+        await input.selectOption(String(value)).catch(() => {});
+      } else {
+        const type = await input.evaluate((el) => (el as HTMLInputElement).type).catch(() => "text");
+        if (type === "checkbox") {
+          const checked = await input.isChecked().catch(() => false);
+          if (checked !== Boolean(value)) await input.click().catch(() => {});
+        } else {
+          await input.fill(String(value), { timeout: 1500 }).catch(() => {});
+        }
+      }
+    }
+  }
+
+  // Confirm with OK / Save / Apply.
+  const confirm = page
+    .locator('button:has-text("OK"), button:has-text("Save"), button:has-text("Apply"), button[aria-label*="Save"]')
+    .first();
+  if (await confirm.isVisible({ timeout: 800 }).catch(() => false)) {
+    await confirm.click({ timeout: 2000 }).catch(() => {});
+  }
+  await page.waitForTimeout(600);
+  await page.keyboard.press("Escape").catch(() => {});
+  return { updated: true, note: "settings dialog handled" };
+}
+
+// ---------------------------------------------------------------------------
+// Chart verification
+// ---------------------------------------------------------------------------
+
+export interface ChartVerificationOptions {
+  expectedIndicatorName?: string;
+  expectedPlots?: number;
+  expectedLabels?: number;
+  expectedTables?: number;
+  maxWaitMs?: number;
+}
+
+export interface ChartVerificationResult {
+  verified: boolean;
+  foundIndicators: string[];
+  foundPlots: number;
+  foundLabels: number;
+  foundTables: number;
+  errors: string[];
+}
+
+/**
+ * Best-effort runtime verification that an indicator is on the chart and that
+ * expected visual objects (plots, labels, tables) are present. Uses the legend
+ * text and a DOM heuristic; not all object types are reliably enumerable on
+ * TradingView's canvas-driven UI.
+ */
+export async function verifyChart(
+  page: Page,
+  options: ChartVerificationOptions = {}
+): Promise<ChartVerificationResult> {
+  const { expectedIndicatorName, expectedPlots, expectedLabels, expectedTables, maxWaitMs = 3000 } = options;
+  const deadline = Date.now() + maxWaitMs;
+  let result: ChartVerificationResult = {
+    verified: false,
+    foundIndicators: [],
+    foundPlots: 0,
+    foundLabels: 0,
+    foundTables: 0,
+    errors: [],
+  };
+
+  while (Date.now() < deadline) {
+    const indicators = await readLegendIndicators(page);
+    result.foundIndicators = indicators.map((i) => i.name);
+    const dialogs = await readDialogs(page);
+
+    const counts = await page.evaluate(() => {
+      const chart = document.querySelector('[data-qa-id="chart-pane"], [class*="chart-container"], .chart-gui-wrapper');
+      const scope = chart ?? document.body;
+      const labels = Array.from(scope.querySelectorAll("*")).filter(
+        (el) =>
+          (el as HTMLElement).className?.toLowerCase().includes("label") &&
+          (el as HTMLElement).offsetWidth > 0
+      ).length;
+      const tables = Array.from(scope.querySelectorAll("*")).filter(
+        (el) =>
+          (el as HTMLElement).className?.toLowerCase().includes("table") &&
+          (el as HTMLElement).offsetWidth > 0
+      ).length;
+      return { labels, tables };
+    }).catch(() => ({ labels: 0, tables: 0 }));
+    result.foundLabels = counts.labels;
+    result.foundTables = counts.tables;
+    result.foundPlots = 0; // Canvas plots are not directly enumerable.
+
+    const errors: string[] = [];
+    if (dialogs.length) errors.push(...dialogs.map((d) => `dialog: ${d}`));
+    if (expectedIndicatorName && !result.foundIndicators.some((n) => n.toLowerCase().includes(expectedIndicatorName.toLowerCase()))) {
+      errors.push(`expected indicator "${expectedIndicatorName}" not found in legend`);
+    }
+    if (expectedLabels !== undefined && result.foundLabels < expectedLabels) {
+      errors.push(`expected at least ${expectedLabels} labels, found ${result.foundLabels}`);
+    }
+    if (expectedTables !== undefined && result.foundTables < expectedTables) {
+      errors.push(`expected at least ${expectedTables} tables, found ${result.foundTables}`);
+    }
+    if (expectedPlots !== undefined && expectedPlots > 0) {
+      errors.push(`canvas plot count cannot be verified automatically (expected ${expectedPlots})`);
+    }
+    result.errors = errors;
+    result.verified = errors.length === 0;
+
+    if (result.verified) break;
+    await page.waitForTimeout(500);
+  }
+  return result;
+}
+
+// ---------------------------------------------------------------------------
+// Pine Script backup / restore
+// ---------------------------------------------------------------------------
+
+const BACKUPS_DIR = join(paths.projectRoot, "backups");
+
+function ensureBackupsDir(): void {
+  mkdirSync(BACKUPS_DIR, { recursive: true });
+}
+
+function sanitizeBackupName(name: string): string {
+  return name.replace(/[^A-Za-z0-9_.\- ]+/g, "").replace(/\s+/g, "_").slice(0, 60);
+}
+
+/**
+ * Save the current Pine editor source to ./backups with an ISO timestamp.
+ */
+export async function backupPineSource(
+  page: Page,
+  label?: string
+): Promise<{ backedUp: boolean; path: string | null; note: string }> {
+  const read = await readPineSource(page);
+  if (!read.source) return { backedUp: false, path: null, note: "Pine editor is empty or closed" };
+  ensureBackupsDir();
+  const scriptName = sanitizeBackupName(read.scriptName ?? label ?? "untitled");
+  const ts = new Date().toISOString().replace(/[:.]/g, "-");
+  const suffix = label ? `-${sanitizeBackupName(label)}` : "";
+  const filename = `${scriptName}-${ts}${suffix}.pine`;
+  const path = join(BACKUPS_DIR, filename);
+  writeFileSync(path, read.source, "utf8");
+  return { backedUp: true, path, note: `source backed up (${read.source.length} chars)` };
+}
+
+export interface BackupEntry {
+  name: string;
+  path: string;
+  mtime: string;
+  size: number;
+}
+
+/**
+ * List available Pine source backups from ./backups, newest first.
+ */
+export function listBackups(): BackupEntry[] {
+  if (!existsSync(BACKUPS_DIR)) return [];
+  return readdirSync(BACKUPS_DIR)
+    .filter((f) => f.endsWith(".pine"))
+    .map((f) => {
+      const path = join(BACKUPS_DIR, f);
+      const stat = statSync(path);
+      return { name: f, path, mtime: stat.mtime.toISOString(), size: stat.size };
+    })
+    .sort((a, b) => b.mtime.localeCompare(a.mtime));
+}
+
+/**
+ * Restore a backup into the Pine editor. If `backupName` is omitted, restores
+ * the most recent backup. Does NOT save to TradingView; call tv_pine_save after.
+ */
+export async function restorePineSource(
+  page: Page,
+  backupName?: string
+): Promise<{ restored: boolean; source: string | null; note: string }> {
+  const backups = listBackups();
+  if (!backups.length) return { restored: false, source: null, note: "no backups found" };
+  const entry = backupName
+    ? backups.find((b) => b.name === backupName || b.path.endsWith(backupName))
+    : backups[0];
+  if (!entry) return { restored: false, source: null, note: `backup "${backupName}" not found` };
+  const source = readFileSync(entry.path, "utf8");
+  if (!(await hasMonacoEditor(page))) {
+    await openPineEditor(page);
+  }
+  await setPineSource(page, source);
+  return { restored: true, source, note: `restored from ${entry.name}` };
 }
