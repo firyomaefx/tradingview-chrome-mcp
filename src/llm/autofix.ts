@@ -6,7 +6,7 @@
  * patch generation is automatic; otherwise the caller must provide a corrected
  * `source` and the tool will only run the compile/save/verify cycle.
  */
-import type { Page } from "playwright";
+import type { PageLike } from "../browser/driver-types.js";
 import { logger } from "../logging/logger.js";
 import { audit } from "../logging/logger.js";
 import { captureScreenshot } from "../adapters/tradingview/adapter.js";
@@ -14,7 +14,7 @@ import * as tv from "../adapters/tradingview/adapter.js";
 import { generatePineFix, isLlmConfigured, type PineFixRequest } from "./client.js";
 
 export interface AutofixContext {
-  page: Page;
+  page: PageLike;
   tabUrl: string;
   requestApproval: (message: string) => Promise<boolean>;
 }
@@ -217,7 +217,7 @@ export async function runAutofix(ctx: AutofixContext, options: AutofixOptions): 
   }
 }
 
-async function safeScreenshot(page: Page, name: string): Promise<string | null> {
+async function safeScreenshot(page: PageLike, name: string): Promise<string | null> {
   try {
     return await captureScreenshot(page, name, false);
   } catch (e) {

@@ -7,11 +7,13 @@
 import { z } from "zod";
 
 const BackendSchema = z.enum(["browser", "market-data-api", "mock"]);
+const BrowserDriverSchema = z.enum(["playwright", "extension"]);
 
 const ConfigSchema = z.object({
   telemetryEnabled: z.boolean().default(false),
   telemetryAllowedKeys: z.array(z.string()).default(["symbol", "ticker", "timeframe"]),
   toolBackend: BackendSchema.default("browser"),
+  browserDriver: BrowserDriverSchema.default("playwright"),
   mcpApiKeys: z.array(z.string()).optional(),
   approvalAutoDestructive: z.boolean().default(false),
   redisUrl: z.string().optional(),
@@ -31,6 +33,7 @@ export const config = ConfigSchema.parse({
   telemetryEnabled: process.env.TELEMETRY_ENABLED === "1",
   telemetryAllowedKeys: parseArray(process.env.TELEMETRY_ALLOWED_KEYS),
   toolBackend: process.env.TOOL_BACKEND,
+  browserDriver: process.env.TV_BROWSER_DRIVER,
   mcpApiKeys: parseArray(process.env.MCP_API_KEYS),
   approvalAutoDestructive: process.env.TV_AUTO_APPROVE_DESTRUCTIVE === "1",
   redisUrl: process.env.UPSTASH_REDIS_REST_URL ?? process.env.KV_URL,

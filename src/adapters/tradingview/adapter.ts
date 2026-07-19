@@ -5,11 +5,12 @@
  * be updated without touching tool definitions. Every reader is defensive:
  * it tries multiple selector strategies and falls back to URL parsing.
  */
-import type { Page } from "playwright";
+import type { LocatorLike, PageLike } from "../../browser/driver-types.js";
 import { logger } from "../../logging/logger.js";
 import { join } from "node:path";
 import { mkdirSync, writeFileSync, readdirSync, readFileSync, statSync, existsSync } from "node:fs";
 import { paths } from "../../logging/logger.js";
+import { getLastObservedError } from "../../browser/extension-driver.js";
 
 export interface ChartState {
   url: string;
@@ -64,7 +65,7 @@ function isChartUrl(url: string): boolean {
   return /tradingview\.com\/chart\//i.test(url);
 }
 
-async function textOf(page: Page, selectors: string[], timeout = 1500): Promise<string | null> {
+async function textOf(page: PageLike, selectors: string[], timeout = 1500): Promise<string | null> {
   for (const sel of selectors) {
     try {
       const el = page.locator(sel).first();
@@ -114,8 +115,8 @@ export function parseTimeframeFromUrl(url: string): string | null {
   }
 }
 
-export async function readChartState(page: Page): Promise<ChartState> {
-  const url = page.url();
+export async function readChartState(page: PageLike): Promise<ChartState> {
+  const url = await page.url();
 
   // Symbol: header symbol button, with URL fallback.
   const symbolText = await textOf(page, [
@@ -177,12 +178,11 @@ export async function readChartState(page: Page): Promise<ChartState> {
   };
 }
 
-async function readDialogs(page: Page): Promise<string[]> {
+async function readDialogs(page: PageLike): Promise<string[]> {
   // Only report real dialogs: visible [role="dialog"] or TradingView's
   // data-name="*-dialog" containers. Exclude watchlist-details scroll wraps
   // and other persistent panels that matched the old broad selectors.
   const found: string[] = [];
-  const seen = new Set<import("playwright").ElementHandle>();
   const candidates = [
     '[role="dialog"]',
     '[data-name$="-dialog"]',
@@ -208,7 +208,7 @@ async function readDialogs(page: Page): Promise<string[]> {
   return found;
 }
 
-export async function hasMonacoEditor(page: Page): Promise<boolean> {
+export async function hasMonacoEditor(page: PageLike): Promise<boolean> {
   return page
     .locator('.monaco-editor, [class*="code-editor"], textarea[class*="editor"]')
     .first()
@@ -216,7 +216,7 @@ export async function hasMonacoEditor(page: Page): Promise<boolean> {
     .catch(() => false);
 }
 
-export async function openPineEditor(page: Page): Promise<{ opened: boolean; alreadyOpen: boolean }> {
+export async function openPineEditor(page: PageLike): Promise<{ opened: boolean; alreadyOpen: boolean }> {
   // Clear any stray menus/overlays left by previous interactions.
   await page.keyboard.press("Escape").catch(() => {});
   await page.waitForTimeout(150);
@@ -280,7 +280,7 @@ export async function openPineEditor(page: Page): Promise<{ opened: boolean; alr
   throw new Error("Could not open Pine Editor. Open it manually in TradingView first, then retry.");
 }
 
-export async function readPineSource(page: Page): Promise<PineRead> {
+export async function readPineSource(page: PageLike): Promise<PineRead> {
   if (!(await hasMonacoEditor(page))) {
     return { scriptName: null, source: null, editorHasUnsavedChanges: false };
   }
@@ -324,7 +324,7 @@ export async function readPineSource(page: Page): Promise<PineRead> {
   return { scriptName, source, editorHasUnsavedChanges };
 }
 
-export async function setPineSource(page: Page, source: string): Promise<void> {
+export async function setPineSource(page: PageLike, source: string): Promise<void> {
   // Wait for the editor's textarea to be ready (it may lag the dialog open).
   const editorTa = page.locator(".monaco-editor textarea.inputarea").first();
   await editorTa.waitFor({ state: "attached", timeout: 10000 }).catch(() => {});
@@ -360,7 +360,7 @@ export async function setPineSource(page: Page, source: string): Promise<void> {
   });
 }
 
-export async function clickSave(page: Page, name?: string): Promise<{ saved: boolean; dialog: string | null }> {
+export async function clickSave(page: PageLike, name?: string): Promise<{ saved: boolean; dialog: string | null }> {
   // Strategy 1: title-button menu -> "Save script" (bypasses overlay interception via eval click).
   try {
     await page.evaluate(() => {
@@ -411,7 +411,7 @@ export async function clickSave(page: Page, name?: string): Promise<{ saved: boo
   }
 }
 
-export async function renameScript(page: Page, name: string): Promise<{ renamed: boolean; oldName: string | null; newName: string | null; dialog: string | null }> {
+export async function renameScript(page: PageLike, name: string): Promise<{ renamed: boolean; oldName: string | null; newName: string | null; dialog: string | null }> {
   // Ensure the Pine editor is open and the title menu is reachable.
   const state = await readChartState(page);
   if (!state.pineEditorOpen) {
@@ -480,7 +480,7 @@ export async function renameScript(page: Page, name: string): Promise<{ renamed:
   return { renamed, oldName, newName, dialog };
 }
 
-export async function readCompileErrors(page: Page): Promise<CompileResult> {
+export async function readCompileErrors(page: PageLike): Promise<CompileResult> {
   // Pine errors are surfaced in the editor's bottom error panel.
   const raw = await textOf(page, [
     '[class*="pine-editor"] [class*="error"]',
@@ -513,6 +513,16 @@ export async function readCompileErrors(page: Page): Promise<CompileResult> {
     else if (x.severity >= 4) warnings.push(x.message);
   }
 
+  // If the extension's MutationObserver already caught a recent toast/error,
+  // include it so the repair loop reacts instantly to errors that disappear
+  // before a tool polls for them.
+  const observed = getLastObservedError();
+  const observedText = observed?.error ? String(observed.error).trim() : "";
+  if (observedText && !errors.includes(observedText) && !warnings.includes(observedText)) {
+    if (/warning/i.test(observedText)) warnings.push(observedText);
+    else errors.push(observedText);
+  }
+
   const success = errors.length === 0;
   return {
     hasErrors: errors.length > 0,
@@ -523,7 +533,7 @@ export async function readCompileErrors(page: Page): Promise<CompileResult> {
   };
 }
 
-export async function addScriptToChart(page: Page): Promise<{ added: boolean; dialog: string | null }> {
+export async function addScriptToChart(page: PageLike): Promise<{ added: boolean; dialog: string | null }> {
   const candidates = [
     '[data-qa-id="add-script-to-chart"]',
     'button[data-name="pine-editor-add-to-chart"]',
@@ -553,7 +563,7 @@ export async function addScriptToChart(page: Page): Promise<{ added: boolean; di
   return { added: false, dialog: null };
 }
 
-export async function changeSymbol(page: Page, symbol: string): Promise<{ changed: boolean }> {
+export async function changeSymbol(page: PageLike, symbol: string): Promise<{ changed: boolean }> {
   const openers = [
     'button[aria-label="Change symbol"]',
     '[data-qa-id="header-toolbar-symbol-search"]',
@@ -588,7 +598,7 @@ export async function changeSymbol(page: Page, symbol: string): Promise<{ change
   return { changed: true };
 }
 
-export async function changeTimeframe(page: Page, tf: string): Promise<{ changed: boolean }> {
+export async function changeTimeframe(page: PageLike, tf: string): Promise<{ changed: boolean }> {
   const openers = [
     'button[aria-label="Change interval"]',
     '[data-qa-id="timeframe-select"]',
@@ -644,7 +654,7 @@ export async function changeTimeframe(page: Page, tf: string): Promise<{ changed
   return { changed: false };
 }
 
-export async function readChartMetadata(page: Page): Promise<ChartMetadata> {
+export async function readChartMetadata(page: PageLike): Promise<ChartMetadata> {
   const state = await readChartState(page);
   const result = await page.evaluate(() => {
     const indicators: string[] = [];
@@ -679,7 +689,7 @@ export async function readChartMetadata(page: Page): Promise<ChartMetadata> {
   };
 }
 
-export async function readStrategyTester(page: Page): Promise<StrategyTesterSummary> {
+export async function readStrategyTester(page: PageLike): Promise<StrategyTesterSummary> {
   // Strategy Tester panel appears after running a strategy script.
   const stVisible = await page
     .locator('[data-name="strategy-tester"], [class*="strategy-tester"]')
@@ -722,7 +732,7 @@ export async function readStrategyTester(page: Page): Promise<StrategyTesterSumm
   };
 }
 
-export async function captureScreenshot(page: Page, name?: string, fullPage = false): Promise<string> {
+export async function captureScreenshot(page: PageLike, name?: string, fullPage = false): Promise<string> {
   const safeName =
     name && /^[A-Za-z0-9_.\- ]+$/.test(name) ? name.replace(/\s+/g, "_").slice(0, 80) : "screenshot";
   const ts = new Date().toISOString().replace(/[:.]/g, "-");
@@ -742,7 +752,7 @@ export async function captureScreenshot(page: Page, name?: string, fullPage = fa
  * dialog texts that were closed. Non-destructive: only clicks close/X
  * buttons; never clicks primary CTA buttons that could change account state.
  */
-export async function dismissDialogs(page: Page): Promise<{ dismissed: string[]; remaining: string[] }> {
+export async function dismissDialogs(page: PageLike): Promise<{ dismissed: string[]; remaining: string[] }> {
   const dismissed: string[] = [];
   const closeSelectors = [
     // Generic close buttons inside dialogs.
@@ -788,7 +798,7 @@ export async function dismissDialogs(page: Page): Promise<{ dismissed: string[];
 /**
  * Layouts: list the saved chart layouts from the layouts menu.
  */
-export async function listLayouts(page: Page): Promise<{ names: string[]; active: string | null }> {
+export async function listLayouts(page: PageLike): Promise<{ names: string[]; active: string | null }> {
   // Open the layouts menu via the header button.
   const opener = page.locator('[data-qa-id="chart-layouts"], button[aria-label*="ayout"], [class*="layout"] button').first();
   const opened = await opener.isVisible({ timeout: 800 }).catch(() => false);
@@ -811,7 +821,7 @@ export async function listLayouts(page: Page): Promise<{ names: string[]; active
 /**
  * Switch to a saved layout by name.
  */
-export async function switchLayout(page: Page, name: string): Promise<{ switched: boolean }> {
+export async function switchLayout(page: PageLike, name: string): Promise<{ switched: boolean }> {
   const opener = page.locator('[data-qa-id="chart-layouts"], button[aria-label*="ayout"], [class*="layout"] button').first();
   if (!(await opener.isVisible({ timeout: 800 }).catch(() => false))) return { switched: false };
   await opener.click({ timeout: 2000 }).catch(() => {});
@@ -831,7 +841,7 @@ export async function switchLayout(page: Page, name: string): Promise<{ switched
  * Only supports the simple "price crosses" style; complex condition editors
  * are out of scope for this version.
  */
-export async function createAlert(page: Page, message: string): Promise<{ created: boolean; dialog: string | null }> {
+export async function createAlert(page: PageLike, message: string): Promise<{ created: boolean; dialog: string | null }> {
   const opener = page.locator('[data-qa-id="alert"], button[aria-label*="Alert"], [class*="header-toolbar"] [class*="alert"]').first();
   if (!(await opener.isVisible({ timeout: 800 }).catch(() => false))) return { created: false, dialog: null };
   await opener.click({ timeout: 2000 }).catch(() => {});
@@ -850,7 +860,7 @@ export async function createAlert(page: Page, message: string): Promise<{ create
   return { created: false, dialog: null };
 }
 
-export async function listAlerts(page: Page): Promise<{ alerts: string[] }> {
+export async function listAlerts(page: PageLike): Promise<{ alerts: string[] }> {
   const opener = page.locator('[data-qa-id="alert"], button[aria-label*="Alert"], [class*="header-toolbar"] [class*="alert"]').first();
   if (!(await opener.isVisible({ timeout: 800 }).catch(() => false))) return { alerts: [] };
   await opener.click({ timeout: 2000 }).catch(() => {});
@@ -864,7 +874,7 @@ export async function listAlerts(page: Page): Promise<{ alerts: string[] }> {
   return { alerts: alerts as string[] };
 }
 
-export async function deleteAlert(page: Page, index: number): Promise<{ deleted: boolean }> {
+export async function deleteAlert(page: PageLike, index: number): Promise<{ deleted: boolean }> {
   const opener = page.locator('[data-qa-id="alert"], button[aria-label*="Alert"], [class*="header-toolbar"] [class*="alert"]').first();
   if (!(await opener.isVisible({ timeout: 800 }).catch(() => false))) return { deleted: false };
   await opener.click({ timeout: 2000 }).catch(() => {});
@@ -883,7 +893,7 @@ export async function deleteAlert(page: Page, index: number): Promise<{ deleted:
 /**
  * Watchlists: read the active watchlist symbols if the watchlist panel is visible.
  */
-export async function readWatchlist(page: Page): Promise<{ visible: boolean; symbols: string[] }> {
+export async function readWatchlist(page: PageLike): Promise<{ visible: boolean; symbols: string[] }> {
   const visible = await page.locator('[class*="watchlist"], [data-name*="watchlist"]').first().isVisible({ timeout: 800 }).catch(() => false);
   if (!visible) return { visible: false, symbols: [] };
   const symbols = await page.evaluate(() => {
@@ -894,7 +904,7 @@ export async function readWatchlist(page: Page): Promise<{ visible: boolean; sym
   return { visible: true, symbols: symbols as string[] };
 }
 
-export async function syncWatchlist(page: Page, symbol: string, addIfMissing = true): Promise<{ synced: boolean; added: boolean; symbols: string[] }> {
+export async function syncWatchlist(page: PageLike, symbol: string, addIfMissing = true): Promise<{ synced: boolean; added: boolean; symbols: string[] }> {
   const current = await readWatchlist(page);
   if (!current.visible) return { synced: false, added: false, symbols: [] };
   if (current.symbols.includes(symbol)) {
@@ -909,7 +919,7 @@ export async function syncWatchlist(page: Page, symbol: string, addIfMissing = t
   return { synced: true, added, symbols: after.symbols };
 }
 
-async function addSymbolToWatchlistInternal(page: Page, symbol: string): Promise<boolean> {
+async function addSymbolToWatchlistInternal(page: PageLike, symbol: string): Promise<boolean> {
   // Strategy 1: header star button for active symbol.
   const star = page.locator('[class*="header-toolbar"] [class*="star"], button[aria-label*="watchlist"], [class*="symbol"] [class*="star"]').first();
   if (await star.isVisible({ timeout: 800 }).catch(() => false)) {
@@ -952,7 +962,7 @@ async function addSymbolToWatchlistInternal(page: Page, symbol: string): Promise
   return false;
 }
 
-export async function addSymbolToWatchlist(page: Page, symbol: string): Promise<{ added: boolean }> {
+export async function addSymbolToWatchlist(page: PageLike, symbol: string): Promise<{ added: boolean }> {
   // Right-click the chart background -> Add to watchlist is unreliable; use the
   // symbol search "add to watchlist" star when available.
   const added = await addSymbolToWatchlistInternal(page, symbol);
@@ -963,7 +973,7 @@ export async function addSymbolToWatchlist(page: Page, symbol: string): Promise<
  * Chart data export: click the Export menu and pick CSV. Returns the path of
  * the most recent CSV downloaded to the project ./exports dir.
  */
-export async function exportChartData(page: Page): Promise<{ triggered: boolean; path: string | null }> {
+export async function exportChartData(page: PageLike): Promise<{ triggered: boolean; path: string | null }> {
   // Configure a download listener first.
   const exportsDir = join(paths.projectRoot, "exports");
   mkdirSync(exportsDir, { recursive: true });
@@ -995,7 +1005,7 @@ export async function exportChartData(page: Page): Promise<{ triggered: boolean;
  * drawing toolbar. TradingView drawings are canvas-based; this uses the
  * left-toolbar drawing menu and is best-effort.
  */
-export async function addHorizontalLine(page: Page): Promise<{ added: boolean }> {
+export async function addHorizontalLine(page: PageLike): Promise<{ added: boolean }> {
   const tool = page.locator('[class*="left-toolbar"] button[aria-label*="Trend Line"], [data-name*="trend-line"], button[aria-label*="Line"]').first();
   if (!(await tool.isVisible({ timeout: 800 }).catch(() => false))) return { added: false };
   await tool.click({ timeout: 2000 }).catch(() => {});
@@ -1024,7 +1034,7 @@ export async function addHorizontalLine(page: Page): Promise<{ added: boolean }>
  * item is not found, in which case the caller should operate on the
  * current chart instead.
  */
-export async function createLayout(page: Page, name: string): Promise<{ created: boolean; note: string }> {
+export async function createLayout(page: PageLike, name: string): Promise<{ created: boolean; note: string }> {
   const opener = page.locator('[data-qa-id="chart-layouts"], button[aria-label*="ayout"], [class*="layout"] button').first();
   if (!(await opener.isVisible({ timeout: 800 }).catch(() => false))) {
     return { created: false, note: "layout menu opener not found" };
@@ -1062,7 +1072,7 @@ export async function createLayout(page: Page, name: string): Promise<{ created:
 // Layout management helpers
 // ---------------------------------------------------------------------------
 
-async function openLayoutMenu(page: Page): Promise<boolean> {
+async function openLayoutMenu(page: PageLike): Promise<boolean> {
   const opener = page.locator('[data-qa-id="chart-layouts"], button[aria-label*="ayout"], button[aria-label*="Layout"]').first();
   if (!(await opener.isVisible({ timeout: 800 }).catch(() => false))) return false;
   await opener.click({ timeout: 2000 }).catch(() => {});
@@ -1071,9 +1081,9 @@ async function openLayoutMenu(page: Page): Promise<boolean> {
 }
 
 async function findMenuItem(
-  page: Page,
+  page: PageLike,
   labels: string[]
-): Promise<import("playwright").Locator | null> {
+): Promise<LocatorLike | null> {
   for (const label of labels) {
     const loc = page
       .locator(
@@ -1085,7 +1095,7 @@ async function findMenuItem(
   return null;
 }
 
-async function dismissIfNamePrompt(page: Page, name: string): Promise<void> {
+async function dismissIfNamePrompt(page: PageLike, name: string): Promise<void> {
   const nameInput = page.locator('input[placeholder*="ame"], [class*="layout"] input[type="text"], [role="dialog"] input[type="text"]').first();
   if (await nameInput.isVisible({ timeout: 1000 }).catch(() => false)) {
     await nameInput.fill(name, { timeout: 1500 }).catch(() => {});
@@ -1099,7 +1109,7 @@ async function dismissIfNamePrompt(page: Page, name: string): Promise<void> {
  * Save the current chart layout. If `name` is provided, performs "Save layout as".
  */
 export async function saveLayout(
-  page: Page,
+  page: PageLike,
   name?: string
 ): Promise<{ saved: boolean; name: string | null; note: string; dialog: string | null }> {
   const activeName = await textOf(page, [
@@ -1128,7 +1138,7 @@ export async function saveLayout(
  * Duplicate the active chart layout.
  */
 export async function duplicateLayout(
-  page: Page,
+  page: PageLike,
   name?: string
 ): Promise<{ duplicated: boolean; newName: string | null; note: string; dialog: string | null }> {
   if (!(await openLayoutMenu(page))) {
@@ -1151,7 +1161,7 @@ export async function duplicateLayout(
  * Rename the active chart layout.
  */
 export async function renameLayout(
-  page: Page,
+  page: PageLike,
   name: string
 ): Promise<{ renamed: boolean; oldName: string | null; newName: string | null; note: string; dialog: string | null }> {
   const oldName = await textOf(page, ['[data-qa-id="chart-layouts"]']);
@@ -1173,7 +1183,7 @@ export async function renameLayout(
 /**
  * Reset the active chart layout to its default/empty state.
  */
-export async function resetLayout(page: Page): Promise<{ reset: boolean; note: string; dialog: string | null }> {
+export async function resetLayout(page: PageLike): Promise<{ reset: boolean; note: string; dialog: string | null }> {
   if (!(await openLayoutMenu(page))) {
     return { reset: false, note: "layout menu opener not found", dialog: null };
   }
@@ -1193,7 +1203,7 @@ export async function resetLayout(page: Page): Promise<{ reset: boolean; note: s
  * the visible chart state to ./layouts for offline backup.
  */
 export async function exportLayout(
-  page: Page,
+  page: PageLike,
   name?: string
 ): Promise<{ exported: boolean; path: string | null; note: string }> {
   const dir = join(paths.projectRoot, "layouts");
@@ -1222,7 +1232,7 @@ export async function exportLayout(
 // Indicator management
 // ---------------------------------------------------------------------------
 
-async function openIndicatorDialog(page: Page): Promise<boolean> {
+async function openIndicatorDialog(page: PageLike): Promise<boolean> {
   const opener = page
     .locator(
       'button[aria-label="Indicators"], [data-qa-id="open-indicators-dialog"], button[data-name="open-indicators-dialog"], [class*="header-toolbar"] button:has-text("Indicators")'
@@ -1238,7 +1248,7 @@ async function openIndicatorDialog(page: Page): Promise<boolean> {
  * Add an indicator/strategy to the chart by name (e.g. "RSI", "MACD").
  */
 export async function addIndicator(
-  page: Page,
+  page: PageLike,
   name: string
 ): Promise<{ added: boolean; dialog: string | null; note: string }> {
   if (!(await openIndicatorDialog(page))) {
@@ -1269,7 +1279,7 @@ interface LegendIndicator {
   visible: boolean;
 }
 
-async function readLegendIndicators(page: Page): Promise<LegendIndicator[]> {
+async function readLegendIndicators(page: PageLike): Promise<LegendIndicator[]> {
   return page
     .evaluate(() => {
       const out: LegendIndicator[] = [];
@@ -1298,7 +1308,7 @@ async function readLegendIndicators(page: Page): Promise<LegendIndicator[]> {
 }
 
 async function clickLegendAction(
-  page: Page,
+  page: PageLike,
   nameOrIndex: string | number,
   action: "remove" | "hide" | "show" | "settings"
 ): Promise<{ ok: boolean; note: string }> {
@@ -1354,7 +1364,7 @@ async function clickLegendAction(
  * Remove an indicator from the chart by exact legend name or zero-based index.
  */
 export async function removeIndicator(
-  page: Page,
+  page: PageLike,
   nameOrIndex: string | number
 ): Promise<{ removed: boolean; note: string }> {
   const res = await clickLegendAction(page, nameOrIndex, "remove");
@@ -1365,7 +1375,7 @@ export async function removeIndicator(
  * Hide an indicator by legend name or index.
  */
 export async function hideIndicator(
-  page: Page,
+  page: PageLike,
   nameOrIndex: string | number
 ): Promise<{ hidden: boolean; note: string }> {
   const res = await clickLegendAction(page, nameOrIndex, "hide");
@@ -1376,7 +1386,7 @@ export async function hideIndicator(
  * Show a previously hidden indicator.
  */
 export async function showIndicator(
-  page: Page,
+  page: PageLike,
   nameOrIndex: string | number
 ): Promise<{ shown: boolean; note: string }> {
   const res = await clickLegendAction(page, nameOrIndex, "show");
@@ -1388,7 +1398,7 @@ export async function showIndicator(
  * `settings` is a map of input labels/placeholders to values.
  */
 export async function setIndicatorSettings(
-  page: Page,
+  page: PageLike,
   nameOrIndex: string | number,
   settings: Record<string, number | string | boolean>
 ): Promise<{ updated: boolean; note: string }> {
@@ -1459,7 +1469,7 @@ export interface ChartVerificationResult {
  * TradingView's canvas-driven UI.
  */
 export async function verifyChart(
-  page: Page,
+  page: PageLike,
   options: ChartVerificationOptions = {}
 ): Promise<ChartVerificationResult> {
   const { expectedIndicatorName, expectedPlots, expectedLabels, expectedTables, maxWaitMs = 3000 } = options;
@@ -1538,7 +1548,7 @@ function sanitizeBackupName(name: string): string {
  * Save the current Pine editor source to ./backups with an ISO timestamp.
  */
 export async function backupPineSource(
-  page: Page,
+  page: PageLike,
   label?: string
 ): Promise<{ backedUp: boolean; path: string | null; note: string }> {
   const read = await readPineSource(page);
@@ -1580,7 +1590,7 @@ export function listBackups(): BackupEntry[] {
  * the most recent backup. Does NOT save to TradingView; call tv_pine_save after.
  */
 export async function restorePineSource(
-  page: Page,
+  page: PageLike,
   backupName?: string
 ): Promise<{ restored: boolean; source: string | null; note: string }> {
   const backups = listBackups();

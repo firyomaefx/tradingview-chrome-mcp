@@ -3,7 +3,7 @@
  * whether it is destructive (requires approval). All handlers receive the
  * validated args and a shared ToolContext.
  */
-import type { Page } from "playwright";
+import type { PageLike } from "../browser/driver-types.js";
 import { logger } from "../logging/logger.js";
 import { audit } from "../logging/logger.js";
 import * as policy from "../permissions/policy.js";
@@ -48,7 +48,7 @@ let activeTab: TradingViewTab | null = null;
 async function tab(): Promise<TradingViewTab> {
   if (activeTab) {
     try {
-      const url = activeTab.page.url();
+      const url = await activeTab.page.url();
       if (url && /tradingview\.com\//i.test(url)) return activeTab;
     } catch {
       activeTab = null;
@@ -60,7 +60,7 @@ async function tab(): Promise<TradingViewTab> {
   return activeTab;
 }
 
-function page(): Promise<Page> {
+function page(): Promise<PageLike> {
   return tab().then((t) => t.page);
 }
 

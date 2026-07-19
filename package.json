@@ -19,6 +19,7 @@
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "node --test --import tsx tests/unit/*.test.ts",
     "test:integration": "node --test-force-exit --test --import tsx tests/integration/*.test.ts",
+    "smoke:extension": "node scripts/smoke-extension.mjs",
     "lint": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {

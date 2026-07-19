@@ -16,6 +16,7 @@ import { createApproval, cancelAllPending, awaitApproval } from "../permissions/
 import { startDashboard } from "../dashboard/server.js";
 import { startHttpTransportIfEnabled } from "./http.js";
 import { createMcpServer, type ToolRegistry } from "./mcp-server.js";
+import { getBrowserDriver } from "../browser/controller.js";
 
 const APPROVAL_TIMEOUT_MS = Number(process.env.TV_APPROVAL_TIMEOUT_MS ?? 120_000);
 const AUTO_APPROVE = process.env.TV_AUTO_APPROVE_DESTRUCTIVE === "1";
@@ -37,6 +38,12 @@ const registry: ToolRegistry = {
 const server = createMcpServer(registry, { userId: "local", requestApproval });
 
 async function main(): Promise<void> {
+  // Warm up the selected browser driver so the extension WebSocket server
+  // (when TV_BROWSER_DRIVER=extension) is listening before any tool call.
+  await getBrowserDriver().catch((e) => {
+    logger.warn({ err: String(e) }, "Browser driver warmup failed (continuing)");
+  });
+
   // Start the dashboard in the same process so approvals work in-memory.
   await startDashboard(DASHBOARD_PORT).catch((e) => {
     logger.warn({ err: String(e) }, "Dashboard failed to start (continuing without it)");
