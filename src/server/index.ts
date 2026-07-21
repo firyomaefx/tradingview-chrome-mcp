@@ -17,6 +17,12 @@ import { startDashboard } from "../dashboard/server.js";
 import { startHttpTransportIfEnabled } from "./http.js";
 import { createMcpServer, type ToolRegistry } from "./mcp-server.js";
 import { getBrowserDriver } from "../browser/controller.js";
+import { initDatabase } from "../db/init.js";
+import { getLicenceState } from "../licensing/licensing.js";
+import { startSyncWorker, stopSyncWorker } from "../sync/sync-manager.js";
+import { appendAudit } from "../audit/audit-chain.js";
+
+const APP_VERSION = process.env.TV_APP_VERSION ?? "0.3.2";
 
 const APPROVAL_TIMEOUT_MS = Number(process.env.TV_APPROVAL_TIMEOUT_MS ?? 120_000);
 const AUTO_APPROVE = process.env.TV_AUTO_APPROVE_DESTRUCTIVE === "1";
@@ -38,6 +44,17 @@ const registry: ToolRegistry = {
 const server = createMcpServer(registry, { userId: "local", requestApproval });
 
 async function main(): Promise<void> {
+  // Initialize the local SQLite source of truth (migrations + device identity).
+  initDatabase(APP_VERSION);
+  const licence = getLicenceState();
+  logger.info(
+    { edition: licence.edition, status: licence.status, deviceId: licence.deviceId },
+    "licence loaded",
+  );
+  appendAudit("system", "server_start", { edition: licence.edition, appVersion: APP_VERSION });
+  // Mandatory operational sync queue (drains to Supabase when configured).
+  startSyncWorker();
+
   // Warm up the selected browser driver so the extension WebSocket server
   // (when TV_BROWSER_DRIVER=extension) is listening before any tool call.
   await getBrowserDriver().catch((e) => {
@@ -63,10 +80,12 @@ async function main(): Promise<void> {
   const shutdown = async (sig: string) => {
     logger.info({ sig }, "shutting down");
     cancelAllPending();
+    stopSyncWorker();
     if (httpTransport) {
       await httpTransport.dispose?.().catch(() => {});
     }
     audit({ ts: new Date().toISOString(), tool: "server_stop", result: "ok" });
+    appendAudit("system", "server_stop", { sig });
     process.exit(0);
   };
   process.on("SIGINT", () => void shutdown("SIGINT"));

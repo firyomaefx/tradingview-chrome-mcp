@@ -11,6 +11,12 @@ import { getTradingViewTab, getBrowser, listTabs, type TradingViewTab } from "..
 import * as tv from "../adapters/tradingview/adapter.js";
 import { detectMcpClient, type DetectedClient } from "../detect/client.js";
 import { runAutofix } from "../llm/autofix.js";
+import { getLicenceState, activateLicence, type ActivationResult } from "../licensing/licensing.js";
+import { EDITION_LIMITS } from "../licensing/edition.js";
+import { verifyAuditChain, readAuditChain } from "../audit/audit-chain.js";
+import { isSyncConfigured, drainSyncQueue } from "../sync/sync-manager.js";
+import { getDb } from "../db/database.js";
+import { countPendingSync } from "../db/repositories.js";
 
 export interface ToolContext {
   requestApproval: (message: string) => Promise<boolean>;
@@ -837,6 +843,95 @@ const tools: ToolDef[] = [
         }
       );
       return { ok: report.success, data: report, screenshot: report.screenshot ?? undefined, tabUrl: t.url };
+    },
+  },
+  {
+    name: "licence_status",
+    description: "Report the current product edition (Free/Pro/Team/Owner), feature limits, activation status, and device id. Read-only.",
+    destructive: false,
+    inputSchema: emptySchema(),
+    async run() {
+      const s = getLicenceState();
+      return {
+        ok: true,
+        data: {
+          edition: s.edition,
+          label: s.limits.label,
+          status: s.status,
+          deviceId: s.deviceId,
+          activatedAt: s.activatedAt,
+          expiresAt: s.expiresAt,
+          limits: {
+            maxAutofixAttempts: s.limits.maxAutofixAttempts,
+            maxTasksPerDay: s.limits.maxTasksPerDay,
+            strategyTester: s.limits.strategyTester,
+            multiDevice: s.limits.multiDevice,
+            ownerDashboard: s.limits.ownerDashboard,
+            cloudSync: s.limits.cloudSync,
+            liveTrading: s.limits.liveTrading,
+          },
+        },
+      };
+    },
+  },
+  {
+    name: "activate_licence",
+    description: "Activate a Pro/Team/Owner licence key locally. Free requires no key. Does not touch the browser or the chart.",
+    destructive: false,
+    inputSchema: schemaFromProperties({
+      key: { type: "string", description: "Licence key, e.g. TV-PRO-<uuid>" },
+    }, ["key"]),
+    async run(args) {
+      const key = String(args.key ?? "");
+      const res: ActivationResult = activateLicence(key);
+      audit({ ts: new Date().toISOString(), tool: "activate_licence", result: res.ok ? "ok" : "error", error: res.error });
+      return { ok: res.ok, data: { edition: res.edition }, error: res.error };
+    },
+  },
+  {
+    name: "edition_limits",
+    description: "List the feature limits for every edition (Free/Pro/Team/Owner). Read-only.",
+    destructive: false,
+    inputSchema: emptySchema(),
+    async run() {
+      return { ok: true, data: EDITION_LIMITS };
+    },
+  },
+  {
+    name: "audit_verify",
+    description: "Recompute the hash-chained audit log from genesis and report the first broken sequence, plus the latest entries. Read-only.",
+    destructive: false,
+    inputSchema: schemaFromProperties({
+      limit: { type: "integer", description: "Number of latest audit entries to return (default 20)" },
+    }),
+    async run(args) {
+      const verification = verifyAuditChain();
+      const limit = typeof args.limit === "number" ? args.limit : 20;
+      const entries = readAuditChain(limit);
+      return { ok: verification.ok, data: { verification, entries }, error: verification.ok ? undefined : verification.reason ?? undefined };
+    },
+  },
+  {
+    name: "sync_status",
+    description: "Report cloud sync configuration and the local sync queue depth. Optionally drain one batch now. Read-only unless drain=true.",
+    destructive: false,
+    inputSchema: schemaFromProperties({
+      drain: { type: "boolean", description: "Drain one batch of pending rows now (default false)" },
+    }),
+    async run(args) {
+      const pending = countPendingSync(getDb());
+      let drained = 0;
+      if (args.drain === true) {
+        drained = await drainSyncQueue();
+      }
+      return {
+        ok: true,
+        data: {
+          configured: isSyncConfigured(),
+          pendingRows: pending,
+          drainedNow: drained,
+        },
+      };
     },
   },
 ];

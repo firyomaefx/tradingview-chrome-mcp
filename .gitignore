@@ -11,6 +11,9 @@ exports/*.csv
 *.pem
 *.key
 backups/
+data/
+tradingview-mcp.db
+tradingview-mcp.db-*
 .cache/
 .codex/
 tsconfig.tsbuildinfo

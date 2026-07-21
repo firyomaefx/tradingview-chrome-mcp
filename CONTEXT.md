@@ -1,65 +1,64 @@
-# Context (v0.3.2)
+# Context (v0.4.0)
 
-## Current state (2026-07-18)
-- **33 MCP tools** in the local server, plus the same tool contract exposed by the hosted fork.
-- **MCP host client detection**: `mcp_client_info` detects Claude Desktop, Claude Code, Codex CLI, ChatGPT Desktop, Cursor, Windsurf, VS Code, JetBrains, and other MCP hosts by inspecting the parent process chain.
-- **Standalone Windows app**: one-line installer, Start-menu + desktop shortcuts, and one-click launcher (`Launch-TV-MCP.cmd` / `scripts/Launch-TV-MCP.ps1`) are live-tested.
-- **Local-first by default**: no remote telemetry, no credential storage, no cookie/token extraction.
-- **Optional Streamable HTTP** on `127.0.0.1:3940` (LAN binding opt-in via `TV_MCP_HTTP_BIND=0.0.0.0`).
-- **Local dashboard** on `http://127.0.0.1:3939` for status, approvals, history, screenshots, and emergency stop.
-- **Vercel-hosted SSE fork** (`vercel-hosted/`) provides a separate serverless market-data MCP endpoint with privacy-first telemetry and pluggable `mock` / `market-data-api` backends.
-
-## New in this pass
-- **Flexible MCP server factory** (`src/server/mcp-server.ts`) reused by local and hosted entrypoints.
-- **Centralized Zod config** (`src/config.ts`): telemetry, Redis, Supabase, API keys, tool backends.
-- **Privacy-first telemetry** (`src/telemetry/telemetry.ts`): strict allow-list defaulting to `symbol`, `ticker`, `timeframe`; disabled unless `TELEMETRY_ENABLED=1`.
-- **API-key auth** (`src/auth/api-keys.ts`): static env keys + Supabase-backed SHA-256 hashed keys.
-- **Redis session store** (`src/sessions/store.ts`): Upstash/Vercel KV with in-memory fallback.
-- **Runtime feature flags** (`src/features/flags.ts`): `disable_telemetry`, `read_only_mode`, `disable_destructive_tools`.
-- **Hosted Next.js app** (`vercel-hosted/`): SSE `/api/sse`, JSON-RPC `/api/messages`, mock market-data registry, Supabase migrations.
-- **MCP host client detection** (`src/detect/client.ts`): identifies the LLM/MCP host that launched the STDIO server; surfaced in `ping`, `tv_status`, and `mcp_client_info`.
-- **Updated docs**: `README.md`, `INSTALL.md`, `ARCHITECTURE.md`, `TOOL_REFERENCE.md`, and new `HOSTED.md` with clear standalone and hosted usage.
-- **Expanded tests**: 41 unit tests for local project + 4 hosted registry tests.
+## Current state (2026-07-22)
+- **48 MCP tools** in the local server, including the new `licence_status`,
+  `activate_licence`, `edition_limits`, `audit_verify`, and `sync_status`.
+- **Local SQLite source of truth** (`src/db/`, `node:sqlite` — no native
+  dependency): migration runner + 16 core tables (device, licence,
+  feature_flags, settings, interaction_log, audit_log, tasks, pine_scripts,
+  pine_versions, compile_errors, fixes, screenshots, backups, strategy_runs,
+  sync_queue). Path resolved lazily from `TV_DATA_DIR`.
+- **Hash-chained append-only audit log** (`src/audit/audit-chain.ts`):
+  `hash = sha256(prev_hash || seq || payload)`; `verifyAuditChain()` detects
+  tampering; `audit_verify` tool surfaces it.
+- **Mandatory operational sync** (`src/sync/sync-manager.ts`): entity
+  allowlist + redaction + exponential backoff; drains to Supabase when
+  configured, else queues locally. Never-sync categories are structurally
+  barred from the queue.
+- **Licensing skeleton** (`src/licensing/`): Free/Pro/Team/Owner editions,
+  `EDITION_LIMITS` feature gating, offline activation + online-activation
+  interface hook. Live trading disabled in every edition.
+- **Hardened redaction** (`src/logging/logger.ts`): full never-synchronize
+  key list + value patterns (OpenAI/Anthropic keys, JWTs, Bearer, card groups).
+- **Autofix loop persisted**: task → Pine versions (SHA-256 + on-disk backup
+  before every edit) → compile errors → fixes → screenshots → audit chain →
+  sync enqueue. Small LLM patches only; no success without compile + visual
+  verification.
+- **Chrome extension driver** + **standalone Windows `.exe`** (v0.2.0 release)
+  still ship.
 
 ## Test status
-- Local project: `npm run typecheck` ✅, `npm test` ✅ 41/41, `npm run build` ✅, smoke test ✅.
-- Hosted app: `npm run typecheck` ✅, `npm run test` ✅ 4/4, `npm run build` ✅.
-- GitHub Actions CI: both `ci` (Windows) and `hosted-app` (Ubuntu) jobs passing.
+- `npm run typecheck` ✅, `npm test` ✅ 80/80, `npm run build` ✅.
+- New tests: `db.test.ts` (migrations, repositories, audit tamper, sync
+  allowlist/backoff, licensing), `edition.test.ts`, `redaction.test.ts`.
 
-## How to start using
+## Editions
+Free (default, no key) and Pro (`TV-PRO-<uuid>`). Team/Owner interfaces
+reserved. See [LICENSING.md](LICENSING.md) and [FREE_VS_PRO.md](FREE_VS_PRO.md).
 
-### Standalone Windows app (recommended)
-```powershell
-irm https://raw.githubusercontent.com/firyomaefx/tradingview-chrome-mcp/main/scripts/install-cli.ps1 | iex
-```
-Then double-click the **TradingView MCP** desktop shortcut.
+## Docs added this pass
+[PRIVACY.md](PRIVACY.md), [TELEMETRY.md](TELEMETRY.md), [LICENSING.md](LICENSING.md),
+[FREE_VS_PRO.md](FREE_VS_PRO.md), [PRODUCTION_CHECKLIST.md](PRODUCTION_CHECKLIST.md),
+updated [SECURITY.md](SECURITY.md).
 
-### From source
-```powershell
-git clone https://github.com/firyomaefx/tradingview-chrome-mcp.git
-cd tradingview-chrome-mcp
-npm install
-npm run build
-pwsh scripts/Launch-TV-MCP.ps1 -CreateShortcut
-```
+## What remains (per PRODUCTION_CHECKLIST.md)
+Supabase DDL + RLS + Edge Functions, owner dashboard, automatic updater with
+rollback, `apps/`+`packages/`+`supabase/` monorepo restructure, strategy
+tester extraction, Windows Credential Manager integration, adversarial
+re-audit, integration/e2e tests. These are subsequent phases; they need
+external infra and would destabilize the shipping `.exe` if rushed.
 
-### Hosted Vercel fork
-```bash
-cd vercel-hosted
-cp .env.local.example .env.local
-# fill in Supabase/Redis/API keys
-npm install
-vercel --prod
-```
-See [HOSTED.md](HOSTED.md) for full details.
+## Key invariants (unchanged + strengthened)
+- No tool executes against a non-allowlisted URL.
+- Every tool call is audit-logged; the audit log is now hash-chained.
+- Destructive tools require approval; timeout = deny.
+- Browser controller never reads/stores cookies, tokens, or passwords.
+- Secrets are redacted before local storage **and** before sync; secrets have
+  no sync allow-list entity.
+- Local services bind to `127.0.0.1`; Chrome debugging is never public.
+- Live trading disabled in every edition.
+- Pine Scripts are backed up before every edit; only small patches are applied.
 
 ## Repository
-- https://github.com/firyomaefx/tradingview-chrome-mcp (public, default branch `main`).
-- Latest release: `v0.2.0`.
-- CI: `.github/workflows/ci.yml` tests both local and hosted apps on every push.
-
-## Key decisions
-- Local project keeps local-first invariants: no telemetry by default, no credential storage.
-- Hosted fork is opt-in and separate; telemetry only logs allow-listed cache parameters.
-- Browser-only tools in hosted mode return explicit "unavailable" errors.
-- Standalone install is PowerShell-based; no compiled executable yet.
+- https://github.com/firyomaefx/tradingview-chrome-mcp (default branch `main`).
+- Latest release: `v0.2.0` (standalone `.exe`).

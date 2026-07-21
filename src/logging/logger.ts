@@ -33,17 +33,73 @@ export const logger = pino({
     : undefined,
 });
 
+// Keys whose value is never persisted locally and never synchronized.
+// Covers the full never-synchronize list: TradingView passwords, browser
+// cookies, session tokens, OpenAI/Anthropic API keys, webhook secrets, auth
+// codes, payment-card details, bank information, private encryption keys, and
+// broker login/account credentials.
 const SECRET_KEYS = [
   "password",
+  "passwd",
   "token",
   "cookie",
   "authorization",
   "api_key",
   "apikey",
+  "api-key",
+  "openai_api_key",
+  "anthropic_api_key",
   "secret",
   "session",
   "refresh_token",
+  "access_token",
+  "webhook",
+  "webhook_secret",
+  "webhook_url",
+  "auth_code",
+  "authcode",
+  "otp",
+  "mfa",
+  "card",
+  "pan",
+  "cvv",
+  "cvc",
+  "expiry",
+  "payment",
+  "bank",
+  "iban",
+  "bic",
+  "swift",
+  "account_number",
+  "routing",
+  "private_key",
+  "privatekey",
+  "encryption_key",
+  "passphrase",
+  "broker",
+  "broker_login",
+  "broker_account",
+  "credential",
+  "credentials",
 ];
+
+// Value-level patterns that are redacted regardless of the key name.
+const SECRET_VALUE_PATTERNS: RegExp[] = [
+  /sk-[A-Za-z0-9]{16,}/, // OpenAI-style API keys
+  /sk-ant-[A-Za-z0-9_-]{16,}/, // Anthropic-style API keys
+  /\beyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\b/, // JWTs
+  /\b(?:\d[ -]*?){13,19}\b/, // credit-card-like number groups
+  /^Bearer\s+\S+/i, // Bearer tokens
+];
+
+function redactValue(v: unknown): unknown {
+  if (typeof v === "string") {
+    for (const re of SECRET_VALUE_PATTERNS) {
+      if (re.test(v)) return "[redacted]";
+    }
+  }
+  return v;
+}
 
 export function redact(input: unknown): unknown {
   if (input == null) return input;
@@ -51,12 +107,13 @@ export function redact(input: unknown): unknown {
   if (Array.isArray(input)) return input.map(redact);
   const out: Record<string, unknown> = {};
   for (const [k, v] of Object.entries(input as Record<string, unknown>)) {
-    if (SECRET_KEYS.some((s) => k.toLowerCase().includes(s))) {
+    const lowerKey = k.toLowerCase();
+    if (SECRET_KEYS.some((s) => lowerKey.includes(s))) {
       out[k] = "[redacted]";
     } else if (typeof v === "object" && v !== null) {
       out[k] = redact(v);
     } else {
-      out[k] = v;
+      out[k] = redactValue(v);
     }
   }
   return out;
